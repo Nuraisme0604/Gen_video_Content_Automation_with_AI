@@ -1,0 +1,6 @@
+.env
+assets_temp/
+__pycache__/
+*.pyc
+.n8n/
+postgres_data/

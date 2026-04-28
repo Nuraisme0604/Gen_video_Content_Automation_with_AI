@@ -1,0 +1,925 @@
+{
+  "name": "Dog Psychology Storytelling - Full Auto AI Video Pipeline",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "weeks",
+              "triggerAtDay": [
+                1,
+                4
+              ],
+              "triggerAtHour": 8,
+              "triggerAtMinute": 0
+            }
+          ]
+        }
+      },
+      "id": "0bceeb6e-474f-4de9-86e6-432f9a254fb3",
+      "name": "Schedule - 2 videos per week",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "ab794ced-6540-4906-8ed9-12900e061786",
+      "name": "Manual Trigger - Test Run",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        180
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "channel_name",
+              "name": "channel_name",
+              "value": "Dog Psychology Storytelling Channel",
+              "type": "string"
+            },
+            {
+              "id": "language",
+              "name": "language",
+              "value": "English voiceover, Vietnamese production notes",
+              "type": "string"
+            },
+            {
+              "id": "target_duration_minutes",
+              "name": "target_duration_minutes",
+              "value": 18,
+              "type": "number"
+            },
+            {
+              "id": "scene_seconds",
+              "name": "scene_seconds",
+              "value": 8,
+              "type": "number"
+            },
+            {
+              "id": "video_structure",
+              "name": "video_structure",
+              "value": "Hook 0-5s, Build tension 5-40s, Twist/climax, Emotional ending",
+              "type": "string"
+            },
+            {
+              "id": "visual_style",
+              "name": "visual_style",
+              "value": "cinematic emotional dog story, ancient town/nature atmosphere, warm realistic lighting, vertical-safe 16:9 composition",
+              "type": "string"
+            },
+            {
+              "id": "publish_mode",
+              "name": "publish_mode",
+              "value": "draft",
+              "type": "string"
+            },
+            {
+              "id": "workspace",
+              "name": "workspace",
+              "value": "/data/dog_psychology_pipeline",
+              "type": "string"
+            },
+            {
+              "id": "episode_id",
+              "name": "episode_id",
+              "value": "={{$now.toFormat('yyyyLLdd_HHmmss')}}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "05c899e1-48c3-4051-86d3-21a0ccf60904",
+      "name": "Channel Config",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        240,
+        80
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.openai.com/v1/responses",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{$env.OPENAI_API_KEY}}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ model: $env.OPENAI_TEXT_MODEL || 'gpt-4.1-mini', input: [ { role: 'system', content: 'You are a senior YouTube strategist for emotional dog psychology storytelling channels. Return valid JSON only.' }, { role: 'user', content: `Create one high-retention video topic package for ${$json.channel_name}. Requirements: niche dog psychology + emotional storytelling + cinematic nature/ancient beauty. Output JSON keys: title, vietnamese_title, core_emotion, dog_behavior_lesson, audience_promise, thumbnail_text, seo_keywords, 3 alternate_titles, why_now, story_seed.` } ], text: { format: { type: 'json_object' } } }) }}",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "id": "a2257e83-2ec2-46b7-867f-dfedb4ca58e7",
+      "name": "AI - Generate Topic Package",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        520,
+        80
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const raw = $input.first().json.output_text || $input.first().json.text || JSON.stringify($input.first().json);\nlet obj;\ntry { obj = JSON.parse(raw); } catch(e) { obj = $input.first().json; }\nreturn [{ json: { ...$('Channel Config').first().json, topic: obj } }];"
+      },
+      "id": "aaacf081-2981-4b06-8f26-7bf15c862842",
+      "name": "Code - Parse Topic JSON",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        760,
+        80
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.openai.com/v1/responses",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{$env.OPENAI_API_KEY}}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ model: $env.OPENAI_TEXT_MODEL || 'gpt-4.1-mini', input: [ { role: 'system', content: 'You are an elite long-form YouTube scriptwriter. Write emotional cinematic dog stories with psychological insight. Return valid JSON only.' }, { role: 'user', content: `Write an 18-minute English narration script for this topic package:\n${JSON.stringify($json.topic)}\n\nRequired structure: ${$json.video_structure}. Keep narration suitable for voiceover. Output JSON keys: title, narration_script, hook, build_tension, twist_climax, emotional_ending, cta, safety_note, estimated_words.` } ], text: { format: { type: 'json_object' } } }) }}",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "id": "f15b5a67-c468-4a8e-96fd-c7308834502d",
+      "name": "AI - Write 18 Minute Script",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1000,
+        80
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const raw = $input.first().json.output_text || $input.first().json.text || JSON.stringify($input.first().json);\nlet script;\ntry { script = JSON.parse(raw); } catch(e) { script = { narration_script: raw, title: $('Code - Parse Topic JSON').first().json.topic?.title || 'Dog Psychology Story' }; }\nconst base = $('Code - Parse Topic JSON').first().json;\nreturn [{ json: { ...base, script } }];"
+      },
+      "id": "479ac9ef-bc3b-4554-8e20-214d37c1ec0a",
+      "name": "Code - Parse Script JSON",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1240,
+        80
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.openai.com/v1/responses",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{$env.OPENAI_API_KEY}}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ model: $env.OPENAI_TEXT_MODEL || 'gpt-4.1-mini', input: [ { role: 'system', content: 'You are a YouTube retention editor. Return valid JSON only.' }, { role: 'user', content: `Review this script for retention, emotional clarity, dog psychology accuracy, and YouTube suitability. Return JSON: score_0_100, keep, issues, fixes. Script:\n${$json.script.narration_script}` } ], text: { format: { type: 'json_object' } } }) }}",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "id": "c49fa359-a97d-426e-b505-d575dedb5622",
+      "name": "AI - QA Script Before Production",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1480,
+        -100
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const raw = $input.first().json.output_text || '{}';\nlet qa = {}; try { qa = JSON.parse(raw); } catch(e) {}\nconst base = $('Code - Parse Script JSON').first().json;\nif ((qa.score_0_100 || 0) < Number($env.MIN_QA_SCORE || 75)) {\n  throw new Error('Script QA score too low: ' + JSON.stringify(qa));\n}\nreturn [{ json: { ...base, qa } }];"
+      },
+      "id": "2d64cc2d-5912-4a68-a143-633390d34137",
+      "name": "Code - QA Gate",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1720,
+        -100
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.openai.com/v1/responses",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{$env.OPENAI_API_KEY}}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ model: $env.OPENAI_TEXT_MODEL || 'gpt-4.1-mini', input: [ { role: 'system', content: 'You are an AI video director. Return valid JSON only.' }, { role: 'user', content: `Break this narration into cinematic scenes of about ${$json.scene_seconds} seconds. For each scene create: scene_id, start_sec, end_sec, narration_excerpt, image_prompt, video_prompt, camera_motion, sound_design, negative_prompt. Keep a consistent dog character and emotional arc. Style: ${$json.visual_style}. Return JSON keys: main_character, style_bible, scenes. Script:\n${$json.script.narration_script}` } ], text: { format: { type: 'json_object' } } }) }}",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "id": "b7fa849c-ba7d-4340-b7c6-afa38b1d6d9a",
+      "name": "AI - Scene Breakdown + Prompts",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1480,
+        160
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const raw = $input.first().json.output_text || '{}';\nlet plan; try { plan = JSON.parse(raw); } catch(e) { throw new Error('Cannot parse scene plan: ' + raw.slice(0,500)); }\nconst base = $('Code - Parse Script JSON').first().json;\nreturn [{ json: { ...base, scene_plan: plan, scenes_count: (plan.scenes || []).length } }];"
+      },
+      "id": "8a17c3e6-366d-4bbc-9738-0348fc20a24b",
+      "name": "Code - Parse Scenes",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1720,
+        160
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const base = $input.first().json;\nconst scenes = base.scene_plan.scenes || [];\nreturn scenes.map(scene => ({ json: { episode_id: base.episode_id, workspace: base.workspace, title: base.script.title, style_bible: base.scene_plan.style_bible, main_character: base.scene_plan.main_character, scene } }));"
+      },
+      "id": "de7e0831-b700-4ac7-8179-75f8fef32b4a",
+      "name": "Code - Split Scenes",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1960,
+        160
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.openai.com/v1/images/generations",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{$env.OPENAI_API_KEY}}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ model: $env.OPENAI_IMAGE_MODEL || 'gpt-image-2', prompt: `${$json.style_bible}\nMain character: ${$json.main_character}\nScene ${$json.scene.scene_id}: ${$json.scene.image_prompt}\nNegative: ${$json.scene.negative_prompt}\nOutput: cinematic 16:9, no text, no watermark.`, size: '1792x1024' }) }}",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "id": "4450df98-0fdd-469a-9420-485858db0294",
+      "name": "HTTP - Generate Scene Image (OpenAI)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2200,
+        160
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const original = $('Code - Split Scenes').all()[$itemIndex]?.json || {};\nconst img = $input.first().json;\nconst url = img.data?.[0]?.url || img.data?.[0]?.b64_json || null;\nreturn [{ json: { ...original, image_result: img, image_url_or_b64: url } }];"
+      },
+      "id": "bff0fc51-3fd4-4b7f-b995-1cf3cec7c3c4",
+      "name": "Code - Normalize Image Result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2440,
+        160
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{$env.VIDEO_API_URL || 'https://api.dev.runwayml.com/v1/text_to_video'}}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{$env.VIDEO_API_KEY}}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "X-Runway-Version",
+              "value": "2024-11-06"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ model: $env.VIDEO_MODEL || 'gen4_turbo', prompt_text: `${$json.scene.video_prompt}\nCamera: ${$json.scene.camera_motion}\nStyle: ${$json.style_bible}`, duration: Number($env.SCENE_VIDEO_SECONDS || 8), ratio: '16:9', seed_image: $json.image_url_or_b64 }) }}",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "id": "f66b64dc-dac1-4937-a4dc-32b03cf4a650",
+      "name": "HTTP - Generate Video Clip Placeholder",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2680,
+        160
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const sceneItem = $('Code - Normalize Image Result').all()[$itemIndex]?.json || {};\nconst task = $input.first().json;\nreturn [{ json: { ...sceneItem, video_task: task, video_url: task.output?.[0] || task.video_url || task.url || null, task_id: task.id || task.task_id || null } }];"
+      },
+      "id": "528ca402-8be9-4a8e-9ed0-f60957c940cb",
+      "name": "Code - Normalize Video Task",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2920,
+        160
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all().map(i => i.json);\nconst base = $('Code - Parse Script JSON').first().json;\nreturn [{ json: { episode_id: base.episode_id, workspace: base.workspace, title: base.script.title, narration_script: base.script.narration_script, thumbnail_text: base.topic.thumbnail_text, seo_keywords: base.topic.seo_keywords, scenes: items.map(i => ({ scene_id: i.scene.scene_id, start_sec: i.scene.start_sec, end_sec: i.scene.end_sec, narration_excerpt: i.scene.narration_excerpt, image: i.image_url_or_b64, video_url: i.video_url, task_id: i.task_id, sound_design: i.scene.sound_design })) } }];"
+      },
+      "id": "c49b6378-6efb-4aff-abb4-f6951da20b28",
+      "name": "Code - Build Render Manifest",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3160,
+        160
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://api.elevenlabs.io/v1/text-to-speech/{{$env.ELEVENLABS_VOICE_ID}}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "xi-api-key",
+              "value": "={{$env.ELEVENLABS_API_KEY}}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "Accept",
+              "value": "audio/mpeg"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ text: $json.script.narration_script, model_id: $env.ELEVENLABS_MODEL || 'eleven_multilingual_v2', voice_settings: { stability: 0.45, similarity_boost: 0.85, style: 0.35, use_speaker_boost: true } }) }}",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "file",
+              "outputPropertyName": "voiceover_mp3"
+            }
+          }
+        }
+      },
+      "id": "bf15cfd5-f94f-48b3-a05e-6898e6b7d3dd",
+      "name": "HTTP - Generate Voiceover (ElevenLabs)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1480,
+        420
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.openai.com/v1/responses",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{$env.OPENAI_API_KEY}}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ model: $env.OPENAI_TEXT_MODEL || 'gpt-4.1-mini', input: [ { role: 'system', content: 'You are a YouTube SEO strategist. Return valid JSON only.' }, { role: 'user', content: `Create upload metadata for this video. Title: ${$json.title}. Keywords: ${JSON.stringify($json.seo_keywords)}. Return JSON keys: final_title, description, tags, chapters, pinned_comment, shorts_hook.` } ], text: { format: { type: 'json_object' } } }) }}",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "id": "fa1387a0-3012-4c6f-a96c-7ca68f3e4c30",
+      "name": "HTTP - Generate SEO Metadata",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3400,
+        160
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const raw = $input.first().json.output_text || '{}';\nlet seo; try { seo = JSON.parse(raw); } catch(e) { seo = {}; }\nconst manifest = $('Code - Build Render Manifest').first().json;\nreturn [{ json: { ...manifest, seo } }];"
+      },
+      "id": "8aa432d1-1474-48c7-b860-2f487a001b6e",
+      "name": "Code - Parse SEO Metadata",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3640,
+        160
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.openai.com/v1/images/generations",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{$env.OPENAI_API_KEY}}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ model: $env.OPENAI_IMAGE_MODEL || 'gpt-image-2', prompt: `YouTube thumbnail, emotional cinematic dog psychology story. Big expressive dog face, human emotion, dramatic warm lighting, ancient town/nature background. Leave clear empty space for text: ${$json.thumbnail_text}. No watermark.`, size: '1792x1024' }) }}",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "id": "20be6202-a732-42a2-905d-85a55a30b92f",
+      "name": "HTTP - Generate Thumbnail Image",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3880,
+        -80
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{$env.RENDER_API_URL || 'https://api.shotstack.io/edit/stage/render'}}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "x-api-key",
+              "value": "={{$env.RENDER_API_KEY}}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ timeline: { background: '#000000', tracks: [ { clips: $json.scenes.map((s, idx) => ({ asset: { type: 'video', src: s.video_url || s.image }, start: idx * Number($env.SCENE_VIDEO_SECONDS || 8), length: Number($env.SCENE_VIDEO_SECONDS || 8), transition: { in: 'fade', out: 'fade' } })) } ] }, output: { format: 'mp4', resolution: '1080' }, metadata: { episode_id: $json.episode_id, title: $json.title } }) }}",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "id": "58b39316-8e84-409b-b6f0-7e3ed65a518a",
+      "name": "HTTP - Render Final Video Placeholder",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3880,
+        160
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const meta = $('Code - Parse SEO Metadata').first().json;\nconst render = $input.first().json;\nreturn [{ json: { ...meta, render_result: render, video_download_url: render.response?.url || render.url || render.output?.url || null, youtube_status: $env.YOUTUBE_PRIVACY_STATUS || 'private' } }];"
+      },
+      "id": "4fbb729a-5a4a-43bd-9d90-06575c1db16e",
+      "name": "Code - Prepare YouTube Draft Payload",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4120,
+        160
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "video",
+        "operation": "upload",
+        "title": "={{$json.seo.final_title || $json.title}}",
+        "description": "={{$json.seo.description || ''}}",
+        "privacyStatus": "={{$json.youtube_status}}",
+        "additionalFields": {
+          "tags": "={{($json.seo.tags || []).join(',')}}"
+        }
+      },
+      "id": "1cccd225-51e4-49ed-a0c7-8764ebffdc8a",
+      "name": "YouTube - Upload Draft Placeholder",
+      "type": "n8n-nodes-base.youtube",
+      "typeVersion": 1,
+      "position": [
+        4360,
+        160
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "c59e0cfc-8d23-4f6a-a3a9-26210d7e30c4",
+      "name": "Notify - Production Summary",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        4600,
+        160
+      ]
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Schedule - 2 videos per week": {
+      "main": [
+        [
+          {
+            "node": "Channel Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Manual Trigger - Test Run": {
+      "main": [
+        [
+          {
+            "node": "Channel Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Channel Config": {
+      "main": [
+        [
+          {
+            "node": "AI - Generate Topic Package",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI - Generate Topic Package": {
+      "main": [
+        [
+          {
+            "node": "Code - Parse Topic JSON",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Parse Topic JSON": {
+      "main": [
+        [
+          {
+            "node": "AI - Write 18 Minute Script",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI - Write 18 Minute Script": {
+      "main": [
+        [
+          {
+            "node": "Code - Parse Script JSON",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Parse Script JSON": {
+      "main": [
+        [
+          {
+            "node": "AI - QA Script Before Production",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "HTTP - Generate Voiceover (ElevenLabs)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI - QA Script Before Production": {
+      "main": [
+        [
+          {
+            "node": "Code - QA Gate",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - QA Gate": {
+      "main": [
+        [
+          {
+            "node": "AI - Scene Breakdown + Prompts",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI - Scene Breakdown + Prompts": {
+      "main": [
+        [
+          {
+            "node": "Code - Parse Scenes",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Parse Scenes": {
+      "main": [
+        [
+          {
+            "node": "Code - Split Scenes",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Split Scenes": {
+      "main": [
+        [
+          {
+            "node": "HTTP - Generate Scene Image (OpenAI)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP - Generate Scene Image (OpenAI)": {
+      "main": [
+        [
+          {
+            "node": "Code - Normalize Image Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Normalize Image Result": {
+      "main": [
+        [
+          {
+            "node": "HTTP - Generate Video Clip Placeholder",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP - Generate Video Clip Placeholder": {
+      "main": [
+        [
+          {
+            "node": "Code - Normalize Video Task",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Normalize Video Task": {
+      "main": [
+        [
+          {
+            "node": "Code - Build Render Manifest",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Build Render Manifest": {
+      "main": [
+        [
+          {
+            "node": "HTTP - Generate SEO Metadata",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP - Generate SEO Metadata": {
+      "main": [
+        [
+          {
+            "node": "Code - Parse SEO Metadata",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Parse SEO Metadata": {
+      "main": [
+        [
+          {
+            "node": "HTTP - Generate Thumbnail Image",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "HTTP - Render Final Video Placeholder",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP - Render Final Video Placeholder": {
+      "main": [
+        [
+          {
+            "node": "Code - Prepare YouTube Draft Payload",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Prepare YouTube Draft Payload": {
+      "main": [
+        [
+          {
+            "node": "YouTube - Upload Draft Placeholder",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "YouTube - Upload Draft Placeholder": {
+      "main": [
+        [
+          {
+            "node": "Notify - Production Summary",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "Asia/Bangkok",
+    "saveManualExecutions": true
+  },
+  "versionId": "53979c29-5709-4a77-9620-2bba907bea58",
+  "meta": {
+    "templateCredsSetupCompleted": false,
+    "description": "Full-auto YouTube AI video pipeline: topic, script, scene prompts, images, video clips, voiceover, metadata, render and YouTube draft upload. Replace VIDEO_API_URL/RENDER_API_URL placeholders with your chosen API."
+  },
+  "id": "dog-psychology-full-auto-pipeline",
+  "tags": [
+    "youtube",
+    "ai-video",
+    "dog-psychology",
+    "automation"
+  ]
+}

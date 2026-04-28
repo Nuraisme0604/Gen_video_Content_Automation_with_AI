@@ -1,0 +1,65 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_USER: user
+      POSTGRES_PASSWORD: pass
+      POSTGRES_DB: dog_engine
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U user -d dog_engine"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: always
+
+  n8n:
+    image: n8nio/n8n:latest
+    environment:
+      - DB_TYPE=postgresdb
+      - DB_POSTGRESDB_HOST=postgres
+      - DB_POSTGRESDB_PORT=5432
+      - DB_POSTGRESDB_DATABASE=dog_engine
+      - DB_POSTGRESDB_USER=user
+      - DB_POSTGRESDB_PASSWORD=pass
+      - N8N_HOST=localhost
+      - N8N_PORT=5678
+      - N8N_PROTOCOL=http
+      - NODE_ENV=production
+      - WEBHOOK_URL=http://localhost:5678/
+      - GENERIC_TIMEZONE=Asia/Ho_Chi_Minh
+    ports:
+      - "5678:5678"
+    volumes:
+      - n8n_data:/home/node/.n8n
+      - ./assets_temp:/assets_temp
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: always
+
+  python_worker:
+    build: 
+      context: ./worker
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./assets_temp:/assets_temp
+    environment:
+      - DATABASE_URL=postgresql://user:pass@postgres:5432/dog_engine
+      - ASSETS_DIR=/assets_temp
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: always
+
+volumes:
+  postgres_data:
+  n8n_data:

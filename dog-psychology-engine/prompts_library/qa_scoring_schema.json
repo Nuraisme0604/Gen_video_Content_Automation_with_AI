@@ -1,0 +1,25 @@
+{
+  "criteria": {
+    "hook_strength": {
+      "weight": 25,
+      "description": "5 giây đầu tiên có đủ sức giữ chân người xem không? Có đưa ra được một bí ẩn hay hành vi kỳ lạ của loài chó không?"
+    },
+    "story_flow": {
+      "weight": 25,
+      "description": "Mạch truyện có tự nhiên, logic và dẫn dắt cảm xúc tốt không? Có theo cấu trúc 4 phần không?"
+    },
+    "scientific_accuracy": {
+      "weight": 20,
+      "description": "Các kiến thức tâm lý học loài chó có chính xác và dễ hiểu không?"
+    },
+    "emotional_impact": {
+      "weight": 20,
+      "description": "Câu chuyện có tạo được sự đồng cảm và xúc động cho người xem không?"
+    },
+    "pacing_and_length": {
+      "weight": 10,
+      "description": "Độ dài có đủ để làm video 18 phút (~3000 từ) không? Nhịp độ câu chuyện có bị nhàm chán không?"
+    }
+  },
+  "min_passing_score": 75
+}
