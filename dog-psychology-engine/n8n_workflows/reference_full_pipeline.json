@@ -110,6 +110,33 @@
     },
     {
       "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT topic_title FROM videos ORDER BY created_at DESC LIMIT 50;"
+      },
+      "id": "postgres-node-123",
+      "name": "Postgres - Get Prev Topics",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [
+        520,
+        -100
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\nconst base = $('Channel Config').first().json;\nconst topics = items.map(i => i.json.topic_title).filter(t => t);\nconst previous_topics = topics.length > 0 ? topics.join(\", \") : \"None\";\nreturn [{ json: { ...base, previous_topics } }];"
+      },
+      "id": "code-agg-node-456",
+      "name": "Code - Aggregate Topics",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        760,
+        -100
+      ]
+    },
+    {
+      "parameters": {
         "method": "POST",
         "url": "https://api.openai.com/v1/responses",
         "sendHeaders": true,
@@ -127,7 +154,7 @@
         },
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ model: $env.OPENAI_TEXT_MODEL || 'gpt-4.1-mini', input: [ { role: 'system', content: 'You are a senior YouTube strategist for emotional dog psychology storytelling channels. Return valid JSON only.' }, { role: 'user', content: `Create one high-retention video topic package for ${$json.channel_name}. Requirements: niche dog psychology + emotional storytelling + cinematic nature/ancient beauty. Output JSON keys: title, vietnamese_title, core_emotion, dog_behavior_lesson, audience_promise, thumbnail_text, seo_keywords, 3 alternate_titles, why_now, story_seed.` } ], text: { format: { type: 'json_object' } } }) }}",
+        "jsonBody": "={{ JSON.stringify({ model: $env.OPENAI_TEXT_MODEL || 'gpt-4.1-mini', input: [ { role: 'system', content: 'You are a senior YouTube strategist for emotional dog psychology storytelling channels. Return valid JSON only.' }, { role: 'user', content: `Create one high-retention video topic package for ${$json.channel_name}. Requirements: niche dog psychology + emotional storytelling + cinematic nature/ancient beauty. VERY IMPORTANT: Do NOT generate any topic similar to these previously used topics: [${$json.previous_topics}]. Output JSON keys: title, vietnamese_title, core_emotion, dog_behavior_lesson, audience_promise, thumbnail_text, seo_keywords, 3 alternate_titles, why_now, story_seed.` } ], text: { format: { type: 'json_object' } } }) }}",
         "options": {
           "response": {
             "response": {
@@ -141,8 +168,8 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
-        520,
-        80
+        1000,
+        -100
       ]
     },
     {
@@ -154,8 +181,8 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        760,
-        80
+        1240,
+        -100
       ]
     },
     {
@@ -677,7 +704,7 @@
       "main": [
         [
           {
-            "node": "AI - Generate Topic Package",
+            "node": "Postgres - Get Prev Topics",
             "type": "main",
             "index": 0
           }
@@ -897,6 +924,28 @@
         [
           {
             "node": "Notify - Production Summary",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Postgres - Get Prev Topics": {
+      "main": [
+        [
+          {
+            "node": "Code - Aggregate Topics",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Aggregate Topics": {
+      "main": [
+        [
+          {
+            "node": "AI - Generate Topic Package",
             "type": "main",
             "index": 0
           }
