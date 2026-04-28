@@ -597,14 +597,10 @@
     {
       "parameters": {
         "method": "POST",
-        "url": "={{$env.RENDER_API_URL || 'https://api.shotstack.io/edit/stage/render'}}",
+        "url": "http://worker:8000/api/v1/render",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
-            {
-              "name": "x-api-key",
-              "value": "={{$env.RENDER_API_KEY}}"
-            },
             {
               "name": "Content-Type",
               "value": "application/json"
@@ -613,7 +609,7 @@
         },
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ timeline: { background: '#000000', tracks: [ { clips: $json.scenes.map((s, idx) => ({ asset: { type: 'video', src: s.video_url || s.image }, start: idx * Number($env.SCENE_VIDEO_SECONDS || 8), length: Number($env.SCENE_VIDEO_SECONDS || 8), transition: { in: 'fade', out: 'fade' } })) } ] }, output: { format: 'mp4', resolution: '1080' }, metadata: { episode_id: $json.episode_id, title: $json.title } }) }}",
+        "jsonBody": "={{ JSON.stringify($json) }}",
         "options": {
           "response": {
             "response": {
@@ -623,7 +619,7 @@
         }
       },
       "id": "58b39316-8e84-409b-b6f0-7e3ed65a518a",
-      "name": "HTTP - Render Final Video Placeholder",
+      "name": "HTTP - Trigger Python Worker",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
@@ -641,37 +637,6 @@
       "typeVersion": 2,
       "position": [
         4120,
-        160
-      ]
-    },
-    {
-      "parameters": {
-        "resource": "video",
-        "operation": "upload",
-        "title": "={{$json.seo.final_title || $json.title}}",
-        "description": "={{$json.seo.description || ''}}",
-        "privacyStatus": "={{$json.youtube_status}}",
-        "additionalFields": {
-          "tags": "={{($json.seo.tags || []).join(',')}}"
-        }
-      },
-      "id": "1cccd225-51e4-49ed-a0c7-8764ebffdc8a",
-      "name": "YouTube - Upload Draft Placeholder",
-      "type": "n8n-nodes-base.youtube",
-      "typeVersion": 1,
-      "position": [
-        4360,
-        160
-      ]
-    },
-    {
-      "parameters": {},
-      "id": "c59e0cfc-8d23-4f6a-a3a9-26210d7e30c4",
-      "name": "Notify - Production Summary",
-      "type": "n8n-nodes-base.noOp",
-      "typeVersion": 1,
-      "position": [
-        4600,
         160
       ]
     }
@@ -897,28 +862,6 @@
         ]
       ]
     },
-    "HTTP - Render Final Video Placeholder": {
-      "main": [
-        [
-          {
-            "node": "Code - Prepare YouTube Draft Payload",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Code - Prepare YouTube Draft Payload": {
-      "main": [
-        [
-          {
-            "node": "YouTube - Upload Draft Placeholder",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
     "YouTube - Upload Draft Placeholder": {
       "main": [
         [
@@ -946,6 +889,17 @@
         [
           {
             "node": "AI - Generate Topic Package",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP - Trigger Python Worker": {
+      "main": [
+        [
+          {
+            "node": "Code - Prepare YouTube Draft Payload",
             "type": "main",
             "index": 0
           }
