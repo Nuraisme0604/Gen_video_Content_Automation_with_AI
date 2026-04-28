@@ -55,6 +55,13 @@ services:
     environment:
       - DATABASE_URL=postgresql://user:pass@postgres:5432/dog_engine
       - ASSETS_DIR=/assets_temp
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - ELEVENLABS_API_KEY=${ELEVENLABS_API_KEY}
+      - ELEVENLABS_VOICE_ID=${ELEVENLABS_VOICE_ID}
+      - VIDEO_API_KEY=${VIDEO_API_KEY}
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+      - TELEGRAM_CHAT_ID=${TELEGRAM_CHAT_ID}
+      - BUDGET_LIMIT_PER_VIDEO=${BUDGET_LIMIT_PER_VIDEO:-100}
     depends_on:
       postgres:
         condition: service_healthy

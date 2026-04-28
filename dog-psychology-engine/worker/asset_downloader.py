@@ -1,15 +1,24 @@
 import os
 import time
 import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 import logging
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
+# Config Session with Retry
+session = requests.Session()
+retry = Retry(connect=3, backoff_factor=1, status_forcelist=[429, 500, 502, 503, 504])
+adapter = HTTPAdapter(max_retries=retry)
+session.mount('http://', adapter)
+session.mount('https://', adapter)
+
 def download_file(url: str, dest_path: str):
     """Download a file from URL to dest_path."""
     try:
-        response = requests.get(url, stream=True, timeout=60)
+        response = session.get(url, stream=True, timeout=60)
         response.raise_for_status()
         with open(dest_path, 'wb') as f:
             for chunk in response.iter_content(chunk_size=8192):
@@ -38,7 +47,7 @@ def generate_voiceover(text: str, dest_path: str, voice_id: str, api_key: str):
         }
     }
     try:
-        response = requests.post(url, json=data, headers=headers, timeout=60)
+        response = session.post(url, json=data, headers=headers, timeout=60)
         response.raise_for_status()
         with open(dest_path, 'wb') as f:
             f.write(response.content)
@@ -57,7 +66,7 @@ def poll_runway_task(task_id: str, api_key: str, max_retries: int = 30, delay: i
     
     for attempt in range(max_retries):
         try:
-            response = requests.get(url, headers=headers, timeout=10)
+            response = session.get(url, headers=headers, timeout=10)
             response.raise_for_status()
             data = response.json()
             status = data.get("status")

@@ -69,14 +69,18 @@ def process_video_pipeline(manifest: RenderManifest):
         voice_id = os.getenv("ELEVENLABS_VOICE_ID", "")
         
         total_cost = 0.0
+        budget_limit = float(os.getenv("BUDGET_LIMIT_PER_VIDEO", "100"))
         
         for scene in manifest.scenes:
             # Chi phí dự tính: $0.1 cho 1 ảnh OpenAI, $0.05 cho ElevenLabs, $0.5 cho 8s Runway
             cost_this_scene = 0.1 + 0.05 + 0.5 
             total_cost += cost_this_scene
             
+            if total_cost > budget_limit:
+                raise Exception(f"Budget exceeded! ${total_cost:.2f} > ${budget_limit:.2f}")
+            
             logger.info(f"Downloading assets for scene {scene.scene_id}...")
-            download_assets_for_scene(
+            results = download_assets_for_scene(
                 scene.dict(), 
                 assets_dir, 
                 runway_key, 
@@ -85,9 +89,25 @@ def process_video_pipeline(manifest: RenderManifest):
             )
             
             with SessionLocal() as db:
-                db.execute(text("INSERT INTO cost_log (video_id, api_service, cost_usd) VALUES (:vid, :svc, :cost)"),
+                db.execute(text("INSERT INTO cost_log (video_id, service, cost_usd) VALUES (:vid, :svc, :cost)"),
                            {"vid": video_id, "svc": "All APIs", "cost": cost_this_scene})
+                db.execute(text("INSERT INTO scenes (video_id, scene_index, audio_path, video_path) VALUES (:vid, :idx, :apath, :vpath)"),
+                           {"vid": video_id, "idx": int(scene.scene_id) if str(scene.scene_id).isdigit() else 0, "apath": results.get("audio_path"), "vpath": results.get("video_path")})
                 db.commit()
+
+        # Ensure global BGM
+        bgm_dir = os.path.join(os.getenv("ASSETS_DIR", "./assets_temp"), "bgm")
+        os.makedirs(bgm_dir, exist_ok=True)
+        bgm_path = os.path.join(bgm_dir, "calm_music.mp3")
+        if not os.path.exists(bgm_path):
+            import requests
+            logger.info("Downloading default BGM...")
+            try:
+                r = requests.get("https://github.com/rafaelreis-hotmart/Audio-Sample-files/raw/master/sample.mp3", timeout=10)
+                with open(bgm_path, "wb") as f:
+                    f.write(r.content)
+            except Exception as e:
+                logger.error(f"Failed to download BGM: {e}")
 
         # 3. Assemble
         logger.info(f"[Video {video_id}] Tải xong. Bắt đầu ghép Video.")

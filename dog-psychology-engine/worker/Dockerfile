@@ -7,7 +7,11 @@ RUN apt-get update && apt-get install -y \
     libxext6 \
     wget \
     fontconfig \
+    imagemagick \
     && rm -rf /var/lib/apt/lists/*
+
+# Fix ImageMagick policy to allow TextClip
+RUN sed -i 's/<policy domain="path" rights="none" pattern="@\*"\/>/<!-- <policy domain="path" rights="none" pattern="@\*"\/> -->/g' /etc/ImageMagick-6/policy.xml || true
 
 # Install Google Font (Montserrat Bold) for thumbnail text overlay
 RUN mkdir -p /usr/share/fonts/truetype/montserrat && \
