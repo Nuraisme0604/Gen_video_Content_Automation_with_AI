@@ -9,7 +9,7 @@ ASSETS_DIR = os.getenv("ASSETS_DIR", "/assets_temp")
 FONT_PATH = "/usr/share/fonts/truetype/montserrat/Montserrat-Bold.ttf"
 
 
-def generate_thumbnail_variants(video_id: int, keyframes: list, texts: list):
+def generate_thumbnail_variants(video_id: str, keyframes: list, texts: list):
     """
     Chèn chữ vào ảnh keyframe để tạo thumbnail YouTube (1280x720).
     

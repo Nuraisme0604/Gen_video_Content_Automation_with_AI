@@ -4,16 +4,16 @@ services:
   postgres:
     image: postgres:15-alpine
     environment:
-      POSTGRES_USER: user
-      POSTGRES_PASSWORD: pass
-      POSTGRES_DB: dog_engine
+      POSTGRES_USER: ${POSTGRES_USER:-user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-pass}
+      POSTGRES_DB: ${POSTGRES_DB:-content_engine}
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./init.sql:/docker-entrypoint-initdb.d/init.sql
     ports:
       - "5432:5432"
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U user -d dog_engine"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-user} -d ${POSTGRES_DB:-content_engine}"]
       interval: 5s
       timeout: 5s
       retries: 10
@@ -22,30 +22,48 @@ services:
   n8n:
     image: n8nio/n8n:latest
     environment:
-      - DB_TYPE=postgresdb
-      - DB_POSTGRESDB_HOST=postgres
-      - DB_POSTGRESDB_PORT=5432
-      - DB_POSTGRESDB_DATABASE=dog_engine
-      - DB_POSTGRESDB_USER=user
-      - DB_POSTGRESDB_PASSWORD=pass
-      - N8N_HOST=localhost
+      # n8n internal DB — dùng SQLite riêng, KHÔNG share DB với app
+      - DB_TYPE=sqlite
+      - N8N_HOST=0.0.0.0
       - N8N_PORT=5678
       - N8N_PROTOCOL=http
       - NODE_ENV=production
-      - WEBHOOK_URL=http://localhost:5678/
+      - WEBHOOK_URL=${N8N_WEBHOOK_URL:-http://localhost:5678/}
       - GENERIC_TIMEZONE=Asia/Ho_Chi_Minh
+      # Expose API keys để dùng trong $env.VAR trong workflow expressions
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - OPENAI_TEXT_MODEL=${OPENAI_TEXT_MODEL:-gpt-4.1-mini}
+      - OPENAI_IMAGE_MODEL=${OPENAI_IMAGE_MODEL:-gpt-image-2}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - CLAUDE_MODEL=${CLAUDE_MODEL:-claude-sonnet-4-6}
+      - ELEVENLABS_API_KEY=${ELEVENLABS_API_KEY}
+      - ELEVENLABS_VOICE_ID=${ELEVENLABS_VOICE_ID}
+      - ELEVENLABS_MODEL=${ELEVENLABS_MODEL:-eleven_multilingual_v2}
+      - VIDEO_PROVIDER=${VIDEO_PROVIDER:-veo3}
+      - VIDEO_API_KEY=${VIDEO_API_KEY}
+      - VIDEO_API_URL=${VIDEO_API_URL}
+      - VIDEO_MODEL=${VIDEO_MODEL:-gen4_turbo}
+      - SCENE_VIDEO_SECONDS=${SCENE_VIDEO_SECONDS:-8}
+      - CHANNEL_NAME=${CHANNEL_NAME:-My YouTube Channel}
+      - CHANNEL_NICHE=${CHANNEL_NICHE:-general}
+      - TARGET_DURATION_MINUTES=${TARGET_DURATION_MINUTES:-15}
+      - MIN_QA_SCORE=${MIN_QA_SCORE:-75}
+      - YOUTUBE_PRIVACY_STATUS=${YOUTUBE_PRIVACY_STATUS:-private}
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+      - TELEGRAM_CHAT_ID=${TELEGRAM_CHAT_ID}
     ports:
       - "5678:5678"
     volumes:
       - n8n_data:/home/node/.n8n
       - ./assets_temp:/assets_temp
+      - ./n8n_workflows:/home/node/workflows
     depends_on:
       postgres:
         condition: service_healthy
     restart: always
 
   python_worker:
-    build: 
+    build:
       context: ./worker
       dockerfile: Dockerfile
     ports:
@@ -53,15 +71,44 @@ services:
     volumes:
       - ./assets_temp:/assets_temp
     environment:
-      - DATABASE_URL=postgresql://user:pass@postgres:5432/dog_engine
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-user}:${POSTGRES_PASSWORD:-pass}@postgres:5432/${POSTGRES_DB:-content_engine}
       - ASSETS_DIR=/assets_temp
+      - MAX_PARALLEL_SCENES=${MAX_PARALLEL_SCENES:-5}
+      - PIPELINE_MODE=${PIPELINE_MODE:-draft}
+      # AI Providers
       - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
       - ELEVENLABS_API_KEY=${ELEVENLABS_API_KEY}
       - ELEVENLABS_VOICE_ID=${ELEVENLABS_VOICE_ID}
+      - ELEVENLABS_MODEL=${ELEVENLABS_MODEL:-eleven_multilingual_v2}
+      # Video
+      - VIDEO_PROVIDER=${VIDEO_PROVIDER:-veo3}
       - VIDEO_API_KEY=${VIDEO_API_KEY}
+      - VIDEO_API_URL=${VIDEO_API_URL}
+      - VIDEO_MODEL=${VIDEO_MODEL:-gen4_turbo}
+      - SCENE_VIDEO_SECONDS=${SCENE_VIDEO_SECONDS:-8}
+      - GOOGLE_API_KEY=${GOOGLE_API_KEY}
+      - VEO3_MODEL=${VEO3_MODEL:-veo-3.0-generate-preview}
+      - VEO3_POLL_TIMEOUT=${VEO3_POLL_TIMEOUT:-300}
+      # Music
+      - MUSIC_PROVIDER=${MUSIC_PROVIDER:-suno}
+      - SUNO_API_KEY=${SUNO_API_KEY}
+      - SUNO_MODEL=${SUNO_MODEL:-chirp-v3-5}
+      - BGM_PROMPT=${BGM_PROMPT:-calm ambient background music}
+      # YouTube
+      - YOUTUBE_CLIENT_ID=${YOUTUBE_CLIENT_ID}
+      - YOUTUBE_CLIENT_SECRET=${YOUTUBE_CLIENT_SECRET}
+      - YOUTUBE_REFRESH_TOKEN=${YOUTUBE_REFRESH_TOKEN}
+      - YOUTUBE_PRIVACY_STATUS=${YOUTUBE_PRIVACY_STATUS:-private}
+      - YOUTUBE_CATEGORY_ID=${YOUTUBE_CATEGORY_ID:-22}
+      # Notifications
       - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
       - TELEGRAM_CHAT_ID=${TELEGRAM_CHAT_ID}
+      # QA
+      - MIN_QA_SCORE=${MIN_QA_SCORE:-75}
       - BUDGET_LIMIT_PER_VIDEO=${BUDGET_LIMIT_PER_VIDEO:-100}
+      # n8n callback webhook
+      - N8N_WEBHOOK_URL=${N8N_WEBHOOK_URL:-http://n8n:5678}
     depends_on:
       postgres:
         condition: service_healthy

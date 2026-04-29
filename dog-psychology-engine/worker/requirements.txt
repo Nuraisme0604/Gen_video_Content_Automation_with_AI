@@ -4,9 +4,19 @@ moviepy==1.0.3
 Pillow==10.1.0
 python-dotenv==1.0.0
 requests==2.31.0
+urllib3==2.0.7
 sqlalchemy==2.0.23
 psycopg2-binary==2.9.9
 pydantic==2.5.2
 
-google-api-python-client
-google-auth-oauthlib
+# YouTube upload
+google-api-python-client==2.108.0
+google-auth==2.23.4
+google-auth-oauthlib==1.1.0
+google-auth-httplib2==0.1.1
+
+# Google Veo3 video generation
+google-genai==0.8.0
+
+# Anthropic Claude (optional, for script refinement if called from worker)
+anthropic==0.39.0

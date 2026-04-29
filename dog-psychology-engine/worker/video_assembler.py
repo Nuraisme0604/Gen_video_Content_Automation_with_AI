@@ -14,7 +14,7 @@ engine = create_engine(DATABASE_URL, pool_pre_ping=True)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 
-def assemble_master_video(video_id: int):
+def assemble_master_video(video_id: str):
     """
     Ghép các video clip lại, mix audio với nhạc nền và áp dụng Audio Ducking.
     """
@@ -80,24 +80,24 @@ def assemble_master_video(video_id: int):
     os.makedirs(output_dir, exist_ok=True)
     output_path = os.path.join(output_dir, f"master_video_{video_id}.mp4")
 
-    master_video.write_videofile(
-        output_path,
-        fps=24,
-        codec="libx264",
-        audio_codec="aac",
-        temp_audiofile=os.path.join(output_dir, f"temp_audio_{video_id}.m4a"),
-        remove_temp=True
-    )
-
-    # Giải phóng bộ nhớ
-    for clip in video_clips:
-        clip.close()
-    master_video.close()
+    try:
+        master_video.write_videofile(
+            output_path,
+            fps=24,
+            codec="libx264",
+            audio_codec="aac",
+            temp_audiofile=os.path.join(output_dir, f"temp_audio_{video_id}.m4a"),
+            remove_temp=True
+        )
+    finally:
+        for clip in video_clips:
+            clip.close()
+        master_video.close()
 
     logger.info(f"[Video {video_id}] ✅ Hoàn thành xuất video: {output_path}")
 
 
-def generate_subtitles(video_id: int):
+def generate_subtitles(video_id: str):
     """
     Sinh file SRT từ voiceover_text đã có trong DB.
     Phiên bản MVP: tạo SRT dựa trên ước lượng thời gian mỗi scene.
