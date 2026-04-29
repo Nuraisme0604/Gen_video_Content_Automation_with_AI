@@ -31,7 +31,7 @@ Engine tự động sản xuất video YouTube cho **bất kỳ niche nào**: b�
 
 ```bash
 git clone <repo-url>
-cd dog-psychology-engine
+cd video-content-engine
 cp .env.example .env
 nano .env                          # Điền API keys
 docker compose up -d --build
@@ -63,7 +63,7 @@ ls -lh assets_temp/final_output/
 ## Cấu trúc
 
 ```text
-dog-psychology-engine/
+video-content-engine/
 ├── docker-compose.yml
 ├── deploy.md                    # Hướng dẫn triển khai chi tiết
 ├── init.sql                     # Schema PostgreSQL (auto-apply)

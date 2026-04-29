@@ -160,7 +160,7 @@ Tài liệu này hướng dẫn từ A→Z cách deploy một engine tự độn
 
 ```bash
 git clone <repo-url>
-cd dog-psychology-engine
+cd video-content-engine
 cp .env.example .env
 nano .env
 ```
@@ -432,7 +432,7 @@ docker compose restart n8n
 ## 11. Cấu trúc thư mục sau khi chạy
 
 ```text
-dog-psychology-engine/
+video-content-engine/
 ├── .env                         # Bí mật — không commit
 ├── docker-compose.yml
 ├── deploy.md                    # ← bạn đang đọc
