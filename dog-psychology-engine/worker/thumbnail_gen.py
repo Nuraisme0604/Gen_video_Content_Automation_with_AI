@@ -12,18 +12,23 @@ FONT_PATH = "/usr/share/fonts/truetype/montserrat/Montserrat-Bold.ttf"
 def generate_thumbnail_variants(video_id: str, keyframes: list, texts: list):
     """
     Chèn chữ vào ảnh keyframe để tạo thumbnail YouTube (1280x720).
-    
+
     Args:
         video_id: ID video
-        keyframes: List đường dẫn ảnh hoặc PIL Image objects
-        texts: List chuỗi text overlay cho mỗi variant
+        keyframes: List đường dẫn ảnh hoặc PIL Image objects (có thể là 1 ảnh DALL-E từ workflow)
+        texts: List chuỗi text overlay cho mỗi variant. Length phải khớp với keyframes
+               (hoặc khớp variants count nếu chỉ có 1 keyframe). Nếu rỗng → skip thumbnail gen.
     """
-    # Fallback: nếu chưa có data, tạo ảnh dummy để test
-    if not keyframes:
-        logger.info(f"[Video {video_id}] Không có keyframes. Tạo ảnh dummy...")
-        img = Image.new('RGB', (1280, 720), color=(73, 109, 137))
-        keyframes = [img, img.copy(), img.copy()]
-        texts = ["TÂM LÝ CHÓ", "SỰ THẬT BẤT NGỜ", "BÍ MẬT"]
+    if not keyframes or not texts:
+        logger.warning(
+            f"[Video {video_id}] Bỏ qua thumbnail generation: thiếu keyframes hoặc texts. "
+            f"Cần truyền ít nhất 1 keyframe (URL DALL-E hoặc PIL Image) + danh sách text overlay."
+        )
+        return
+
+    # Nếu chỉ có 1 keyframe nhưng nhiều texts → reuse cùng frame
+    if len(keyframes) == 1 and len(texts) > 1:
+        keyframes = keyframes * len(texts)
 
     output_dir = os.path.join(ASSETS_DIR, "final_output", f"thumbnails_{video_id}")
     os.makedirs(output_dir, exist_ok=True)

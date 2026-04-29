@@ -84,14 +84,29 @@ def poll_runway_task(task_id: str, api_key: str, max_retries: int = 30, delay: i
     return None
 
 
-def _generate_video_from_prompt(prompt: str, dest_path: str) -> bool:
-    """Route video generation to Veo3 or Runway based on VIDEO_PROVIDER env var."""
+def _generate_video_from_prompt(prompt: str, dest_path: str, image_path: str = None) -> bool:
+    """
+    Route video generation to Veo3 or Runway based on VIDEO_PROVIDER env var.
+
+    Args:
+        prompt: Text description of the video.
+        dest_path: Output mp4 path.
+        image_path: Optional reference image (DALL-E scene image). For Veo3,
+                    enables image-to-video mode → visual continuity. For Runway,
+                    currently ignored (Runway image-to-video uses different param).
+    """
     provider = os.getenv("VIDEO_PROVIDER", "runway").lower()
+    use_image = os.getenv("USE_IMAGE_TO_VIDEO", "true").lower() in ("true", "1", "yes")
 
     if provider == "veo3":
         from veo3_generator import generate_video_veo3
         duration = int(os.getenv("SCENE_VIDEO_SECONDS", "8"))
-        return generate_video_veo3(prompt, dest_path, duration_seconds=duration)
+        return generate_video_veo3(
+            prompt,
+            dest_path,
+            duration_seconds=duration,
+            image_path=image_path if use_image else None,
+        )
 
     elif provider == "runway":
         # Submit Runway job then poll
@@ -168,7 +183,9 @@ def download_assets_for_scene(scene: dict, assets_dir: str, runway_api_key: str,
         if url and download_file(url, vid_path):
             results["video_path"] = vid_path
     elif video_prompt:
-        if _generate_video_from_prompt(video_prompt, vid_path):
+        # Pass DALL-E scene image (if downloaded) as initial frame → image-to-video
+        # giúp visual của Veo3 video khớp với scene image (consistency between scenes)
+        if _generate_video_from_prompt(video_prompt, vid_path, image_path=results.get("image_path")):
             results["video_path"] = vid_path
     else:
         logger.warning(f"Scene {scene_id}: no video_url, task_id, or video_prompt — skipping video")

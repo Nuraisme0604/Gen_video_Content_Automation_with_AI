@@ -1,22 +1,32 @@
-FastAPI==0.104.1
-uvicorn==0.24.0
+# Web framework
+fastapi>=0.115.0,<0.120.0
+uvicorn>=0.30.0,<0.40.0
+
+# Video processing
 moviepy==1.0.3
-Pillow==10.1.0
-python-dotenv==1.0.0
-requests==2.31.0
-urllib3==2.0.7
-sqlalchemy==2.0.23
-psycopg2-binary==2.9.9
-pydantic==2.5.2
+Pillow>=10.1.0,<12.0.0
+
+# Utilities
+python-dotenv>=1.0.0
+requests>=2.31.0
+urllib3>=2.0.7
+
+# Database
+sqlalchemy>=2.0.23,<3.0.0
+psycopg2-binary>=2.9.9
+
+# Pydantic v2 (>=2.9 cho google-genai 1.10+)
+pydantic>=2.9.0,<3.0.0
 
 # YouTube upload
-google-api-python-client==2.108.0
-google-auth==2.23.4
-google-auth-oauthlib==1.1.0
-google-auth-httplib2==0.1.1
+google-api-python-client>=2.108.0
+google-auth>=2.23.4
+google-auth-oauthlib>=1.1.0
+google-auth-httplib2>=0.1.1
 
 # Google Veo3 video generation
-google-genai==0.8.0
+# >=1.10 yêu cầu cho image-to-video kwarg. Versions 1.0-1.4 fall back text-only tự động.
+google-genai>=1.10.0,<2.0.0
 
-# Anthropic Claude (optional, for script refinement if called from worker)
-anthropic==0.39.0
+# Anthropic Claude (script refinement)
+anthropic>=0.39.0,<1.0.0

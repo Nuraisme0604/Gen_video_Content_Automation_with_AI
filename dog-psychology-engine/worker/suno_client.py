@@ -6,14 +6,18 @@ from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
-SUNO_API_BASE = "https://studio-api.suno.ai"
+# Cho phép override qua env vì Suno chưa có public API chính thức.
+# Một số 3rd-party gateway phổ biến: https://api.sunoaiapi.com, https://suno.gcui.ai
+# studio-api.suno.ai là endpoint internal đang được community reverse-engineer,
+# không guarantee availability — Cloudflare có thể block bất cứ lúc nào.
+SUNO_API_BASE = os.getenv("SUNO_API_BASE", "https://studio-api.suno.ai")
 
 
 def generate_bgm(prompt: str, dest_path: str) -> bool:
     """
     Generate background music using Suno AI.
-    Requires SUNO_API_KEY env var.
-    Falls back silently if key is not configured.
+    Requires SUNO_API_KEY env var. Returns False (caller falls back to static BGM)
+    if key missing, endpoint unreachable, or generation fails.
     """
     api_key = os.getenv("SUNO_API_KEY")
     if not api_key:

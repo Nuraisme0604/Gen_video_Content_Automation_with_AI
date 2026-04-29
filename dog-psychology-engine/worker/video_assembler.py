@@ -1,5 +1,7 @@
 import os
 import logging
+import shlex
+import subprocess
 from moviepy.editor import VideoFileClip, AudioFileClip, concatenate_videoclips, CompositeAudioClip, afx
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker
@@ -7,7 +9,7 @@ from sqlalchemy.orm import sessionmaker
 logger = logging.getLogger(__name__)
 
 # Config
-DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://user:pass@localhost:5432/dog_engine")
+DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://user:pass@postgres:5432/content_engine")
 ASSETS_DIR = os.getenv("ASSETS_DIR", "/assets_temp")
 
 engine = create_engine(DATABASE_URL, pool_pre_ping=True)
@@ -32,8 +34,11 @@ def assemble_master_video(video_id: str):
         return
 
     video_clips = []
+    # Volume mix config
+    veo_audio_volume = float(os.getenv("VEO_AUDIO_VOLUME", "0.3"))     # Veo3 native audio (ambient/SFX) at 30%
+    voice_volume     = float(os.getenv("VOICE_VOLUME", "1.0"))         # ElevenLabs voiceover at 100%
 
-    # 2. Xử lý từng scene
+    # 2. Xử lý từng scene — MIX Veo3 native audio + ElevenLabs voiceover (không replace)
     for scene in scenes:
         scene_id, scene_idx, v_path, a_path = scene
 
@@ -43,11 +48,25 @@ def assemble_master_video(video_id: str):
 
         try:
             v_clip = VideoFileClip(v_path)
+            veo_native_audio = v_clip.audio  # Veo3 generates ambient + SFX natively
+
             if a_path and os.path.exists(a_path):
-                a_clip = AudioFileClip(a_path)
-                # Đồng bộ duration: lấy min giữa video và audio
-                min_duration = min(v_clip.duration, a_clip.duration)
-                v_clip = v_clip.subclip(0, min_duration).set_audio(a_clip.subclip(0, min_duration))
+                voice_clip = AudioFileClip(a_path)
+                min_duration = min(v_clip.duration, voice_clip.duration)
+                voice_clip = voice_clip.subclip(0, min_duration).volumex(voice_volume)
+
+                if veo_native_audio is not None and veo_audio_volume > 0:
+                    # MIX: Veo3 native (low) + voiceover (full)
+                    veo_quiet = veo_native_audio.subclip(0, min_duration).volumex(veo_audio_volume)
+                    final_audio = CompositeAudioClip([veo_quiet, voice_clip])
+                    v_clip = v_clip.subclip(0, min_duration).set_audio(final_audio)
+                    logger.debug(f"[Scene {scene_id}] Mixed Veo3 audio ({veo_audio_volume*100:.0f}%) + voiceover ({voice_volume*100:.0f}%)")
+                else:
+                    # Fallback: voiceover only (Veo3 không có audio hoặc bị disable)
+                    v_clip = v_clip.subclip(0, min_duration).set_audio(voice_clip)
+            else:
+                # No voiceover → giữ Veo3 native audio nguyên
+                logger.debug(f"[Scene {scene_id}] No voiceover, keeping Veo3 native audio")
             video_clips.append(v_clip)
         except Exception as e:
             logger.error(f"[Scene {scene_id}] Lỗi khi load clip: {e}")
@@ -60,12 +79,33 @@ def assemble_master_video(video_id: str):
     master_video = concatenate_videoclips(video_clips, method="compose")
     logger.info(f"[Video {video_id}] Đã ghép {len(video_clips)} clips. Tổng thời lượng: {master_video.duration:.1f}s")
 
-    # 4. Thêm nhạc nền (Static Ducking: BGM giữ mức 15% volume xuyên suốt)
-    bgm_path = os.path.join(ASSETS_DIR, "bgm", "calm_music.mp3")
+    # 4. Thêm nhạc nền (Audio Ducking + crossfade loop nếu BGM ngắn hơn video)
+    # Ưu tiên BGM per-video (emotion-aware từ main_server), fallback về tên cũ
+    bgm_path = os.path.join(ASSETS_DIR, "bgm", f"background_{video_id}.mp3")
+    if not os.path.exists(bgm_path):
+        bgm_path = os.path.join(ASSETS_DIR, "bgm", "background.mp3")
+    if not os.path.exists(bgm_path):
+        bgm_path = os.path.join(ASSETS_DIR, "bgm", "calm_music.mp3")
+    bgm_volume = float(os.getenv("BGM_VOLUME", "0.15"))  # Default 15% — an toàn cho narration
+
     if os.path.exists(bgm_path):
         bgm_clip = AudioFileClip(bgm_path)
-        bgm_clip = afx.audio_loop(bgm_clip, duration=master_video.duration)
-        bgm_clip = bgm_clip.volumex(0.15)  # 15% volume — an toàn cho narration
+        # Loop với crossfade nếu BGM ngắn hơn video (tránh hard cut khó chịu)
+        if bgm_clip.duration < master_video.duration:
+            crossfade_sec = float(os.getenv("BGM_CROSSFADE_SEC", "2.0"))
+            logger.info(
+                f"[Video {video_id}] BGM ({bgm_clip.duration:.0f}s) < video ({master_video.duration:.0f}s). "
+                f"Looping với crossfade {crossfade_sec}s..."
+            )
+            try:
+                bgm_clip = afx.audio_loop(bgm_clip, duration=master_video.duration).audio_fadein(crossfade_sec).audio_fadeout(crossfade_sec)
+            except Exception:
+                # Fallback: simple loop nếu fadein/fadeout fail
+                bgm_clip = afx.audio_loop(bgm_clip, duration=master_video.duration)
+        else:
+            bgm_clip = bgm_clip.subclip(0, master_video.duration)
+
+        bgm_clip = bgm_clip.volumex(bgm_volume)
 
         if master_video.audio:
             final_audio = CompositeAudioClip([master_video.audio, bgm_clip])
@@ -139,3 +179,55 @@ def _format_srt_time(seconds: float) -> str:
     s = int(seconds % 60)
     ms = int((seconds % 1) * 1000)
     return f"{h:02d}:{m:02d}:{s:02d},{ms:03d}"
+
+
+def burn_subtitles_into_video(video_id: str):
+    """
+    Burn the SRT subtitle file directly into the master video using ffmpeg.
+    Required for TikTok/Shorts where viewers won't toggle CC. Controlled by env BURN_SUBTITLES=true.
+    """
+    if os.getenv("BURN_SUBTITLES", "false").lower() not in ("true", "1", "yes"):
+        return
+
+    output_dir = os.path.join(ASSETS_DIR, "final_output")
+    master_path = os.path.join(output_dir, f"master_video_{video_id}.mp4")
+    srt_path = os.path.join(output_dir, f"subtitles_{video_id}.srt")
+    burned_path = os.path.join(output_dir, f"master_video_{video_id}.burned.mp4")
+
+    if not os.path.exists(master_path):
+        logger.warning(f"[Video {video_id}] Bỏ qua burn-in: không có master video tại {master_path}")
+        return
+    if not os.path.exists(srt_path):
+        logger.warning(f"[Video {video_id}] Bỏ qua burn-in: không có file SRT tại {srt_path}")
+        return
+
+    style = os.getenv(
+        "SUBTITLE_STYLE",
+        "FontName=Arial,FontSize=24,PrimaryColour=&Hffffff,OutlineColour=&H000000,BorderStyle=1,Outline=2,Alignment=2,MarginV=40",
+    )
+    # ffmpeg subtitle filter requires the path quoted/escaped for filtergraph syntax
+    srt_for_filter = srt_path.replace("\\", "/").replace(":", r"\:").replace("'", r"\'")
+    vf = f"subtitles='{srt_for_filter}':force_style='{style}'"
+
+    cmd = [
+        "ffmpeg", "-y",
+        "-i", master_path,
+        "-vf", vf,
+        "-c:v", "libx264", "-preset", "medium", "-crf", "20",
+        "-c:a", "copy",
+        burned_path,
+    ]
+
+    logger.info(f"[Video {video_id}] Burn-in subtitles: {' '.join(shlex.quote(c) for c in cmd)}")
+
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=900)
+        if result.returncode != 0:
+            logger.error(f"[Video {video_id}] FFmpeg burn-in failed: {result.stderr[-800:]}")
+            return
+        os.replace(burned_path, master_path)
+        logger.info(f"[Video {video_id}] ✅ Subtitles burned into master video")
+    except subprocess.TimeoutExpired:
+        logger.error(f"[Video {video_id}] FFmpeg burn-in timed out")
+    except Exception as e:
+        logger.error(f"[Video {video_id}] Burn-in error: {e}")

@@ -56,7 +56,7 @@
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.4,
       "position": [480, 80],
-      "credentials": { "postgres": { "id": "postgres-cred", "name": "Postgres" } }
+      "credentials": { "postgres": { "name": "Postgres" } }
     },
     {
       "parameters": {
@@ -71,6 +71,17 @@
     },
     {
       "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Real YouTube channel analysis via YouTube Data API v3.\n// Skips silently if no channel_url or YOUTUBE_DATA_API_KEY — GPT then operates on niche-only mode.\nconst cfg = $input.first().json;\nconst url = cfg.channel_url || '';\nconst apiKey = $env.YOUTUBE_DATA_API_KEY || '';\n\nif (!url || !apiKey) {\n  return [{ json: { ...cfg, channel_analysis: null } }];\n}\n\nconst handleMatch  = url.match(/@([^/?#]+)/);\nconst channelMatch = url.match(/channel\\/([^/?#]+)/);\nconst userMatch    = url.match(/user\\/([^/?#]+)/);\nlet identifier = null, identifierType = null;\nif (channelMatch) { identifier = channelMatch[1]; identifierType = 'channelId'; }\nelse if (handleMatch) { identifier = handleMatch[1]; identifierType = 'handle'; }\nelse if (userMatch)  { identifier = userMatch[1];  identifierType = 'username'; }\n\nif (!identifier) {\n  return [{ json: { ...cfg, channel_analysis: { error: 'Cannot parse channel URL: ' + url } } }];\n}\n\nasync function fetchJson(u) {\n  const r = await fetch(u);\n  if (!r.ok) throw new Error(`YouTube API ${r.status}: ${(await r.text()).slice(0,200)}`);\n  return r.json();\n}\n\ntry {\n  // 1. Resolve channel ID\n  let channelId = identifierType === 'channelId' ? identifier : null;\n  if (!channelId) {\n    const search = await fetchJson(`https://www.googleapis.com/youtube/v3/search?part=snippet&type=channel&q=${encodeURIComponent(identifier)}&maxResults=1&key=${apiKey}`);\n    channelId = search.items?.[0]?.id?.channelId;\n  }\n  if (!channelId) {\n    return [{ json: { ...cfg, channel_analysis: { error: 'Could not resolve channel ID for ' + identifier } } }];\n  }\n\n  // 2. Channel snippet + statistics\n  const ch = await fetchJson(`https://www.googleapis.com/youtube/v3/channels?part=snippet,statistics&id=${channelId}&key=${apiKey}`);\n  const chInfo = ch.items?.[0];\n\n  // 3. Top 10 videos by view count\n  const top = await fetchJson(`https://www.googleapis.com/youtube/v3/search?part=snippet&channelId=${channelId}&order=viewCount&maxResults=10&type=video&key=${apiKey}`);\n  const videoIds = (top.items || []).map(i => i.id?.videoId).filter(Boolean);\n\n  let topVideos = [];\n  if (videoIds.length) {\n    const stats = await fetchJson(`https://www.googleapis.com/youtube/v3/videos?part=snippet,statistics,contentDetails&id=${videoIds.join(',')}&key=${apiKey}`);\n    topVideos = (stats.items || []).map(v => ({\n      title:        v.snippet?.title,\n      description:  (v.snippet?.description || '').slice(0, 300),\n      tags:         (v.snippet?.tags || []).slice(0, 10),\n      published_at: v.snippet?.publishedAt,\n      duration:     v.contentDetails?.duration,\n      views:        parseInt(v.statistics?.viewCount || '0'),\n      likes:        parseInt(v.statistics?.likeCount || '0'),\n      comments:     parseInt(v.statistics?.commentCount || '0')\n    })).sort((a, b) => b.views - a.views);\n  }\n\n  const analysis = {\n    channel_id:        channelId,\n    channel_title:     chInfo?.snippet?.title,\n    channel_description: (chInfo?.snippet?.description || '').slice(0, 800),\n    country:           chInfo?.snippet?.country || null,\n    subscriber_count:  parseInt(chInfo?.statistics?.subscriberCount || '0'),\n    total_videos:      parseInt(chInfo?.statistics?.videoCount || '0'),\n    total_views:       parseInt(chInfo?.statistics?.viewCount || '0'),\n    top_videos:        topVideos\n  };\n\n  return [{ json: { ...cfg, channel_analysis: analysis } }];\n} catch (e) {\n  return [{ json: { ...cfg, channel_analysis: { error: String(e.message || e) } } }];\n}"
+      },
+      "id": "a1000026-0000-0000-0000-000000000026",
+      "name": "Code - Fetch YouTube Channel Data",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [840, 200]
+    },
+    {
+      "parameters": {
         "method": "POST",
         "url": "https://api.openai.com/v1/responses",
         "sendHeaders": true,
@@ -82,14 +93,14 @@
         },
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ model: $env.OPENAI_TEXT_MODEL || 'gpt-4.1-mini', input: [{ role: 'system', content: `You are a senior YouTube content strategist. Channel niche: ${$json.channel_niche}. Return valid JSON only.` }, { role: 'user', content: `${$json.channel_url ? 'Analyze this YouTube channel: ' + $json.channel_url + '\\n\\n' : ''}Create ONE high-retention video topic package for a ${$json.channel_niche} YouTube channel.\\nDo NOT reuse these topics: [${$json.previous_topics}].\\nOutput JSON: title, core_emotion, audience_promise, thumbnail_text, seo_keywords (array), hook_angle, story_seed, why_this_works.` }], text: { format: { type: 'json_object' } } }) }}",
+        "jsonBody": "={{ JSON.stringify({ model: $env.OPENAI_TEXT_MODEL || 'gpt-5.4-mini', input: [{ role: 'system', content: `You are a senior YouTube content strategist. Channel niche: ${$json.channel_niche}. Return valid JSON only.` }, { role: 'user', content: `${$json.channel_analysis && !$json.channel_analysis.error ? 'REFERENCE CHANNEL (REAL data from YouTube Data API):\\n' + JSON.stringify($json.channel_analysis, null, 2) + '\\n\\nStudy the title patterns, hooks, and topics of the top videos above. Identify what drives retention on this channel. Then create ONE NEW topic that fits the same audience and pattern but is original.\\n\\n' : ($json.channel_url ? 'Note: channel URL provided but could not be fetched (' + ($json.channel_analysis?.error || 'no API key') + '). Operate from niche only.\\n\\n' : '')}Create ONE high-retention video topic package for a ${$json.channel_niche} YouTube channel.\\nDo NOT reuse these topics: [${$json.previous_topics}].\\nOutput JSON: title, core_emotion, audience_promise, thumbnail_text, seo_keywords (array), hook_angle, story_seed, why_this_works.` }], text: { format: { type: 'json_object' } } }) }}",
         "options": { "response": { "response": { "responseFormat": "json" } } }
       },
       "id": "a1000007-0000-0000-0000-000000000007",
       "name": "AI - Generate Topic",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [960, 80]
+      "position": [1080, 80]
     },
     {
       "parameters": {
@@ -115,7 +126,7 @@
         },
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ model: $env.OPENAI_TEXT_MODEL || 'gpt-4.1-mini', input: [{ role: 'system', content: `You are a long-form YouTube scriptwriter. Write in ${$json.language}. Return valid JSON only.` }, { role: 'user', content: `Write a rough ${$json.target_duration_minutes}-minute YouTube script for this topic:\\n${JSON.stringify($json.topic)}\\n\\nStructure: Hook (0-30s) → Build (30s-80%) → Climax → Emotional ending → CTA.\\nOutput JSON: title, narration_script, hook, estimated_words, scene_count_hint.` }], text: { format: { type: 'json_object' } } }) }}",
+        "jsonBody": "={{ JSON.stringify({ model: $env.OPENAI_TEXT_MODEL || 'gpt-5.4-mini', input: [{ role: 'system', content: `You are a long-form YouTube scriptwriter. Write in ${$json.language}. Return valid JSON only.` }, { role: 'user', content: `Write a rough ${$json.target_duration_minutes}-minute YouTube script for this topic:\\n${JSON.stringify($json.topic)}\\n\\nStructure: Hook (0-30s) → Build (30s-80%) → Climax → Emotional ending → CTA.\\nOutput JSON: title, narration_script, hook, estimated_words, scene_count_hint.` }], text: { format: { type: 'json_object' } } }) }}",
         "options": { "response": { "response": { "responseFormat": "json" } } }
       },
       "id": "a1000009-0000-0000-0000-000000000009",
@@ -149,7 +160,7 @@
         },
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ model: $env.CLAUDE_MODEL || 'claude-sonnet-4-6', max_tokens: 8192, messages: [{ role: 'user', content: `You are an elite YouTube scriptwriter. Rewrite this script to maximize viewer retention, emotional impact, and watch time.\\n\\nChannel niche: ${$json.channel_niche}\\nLanguage: ${$json.language}\\nTarget duration: ${$json.target_duration_minutes} minutes\\n\\nRough script to refine:\\n${$json.script.narration_script}\\n\\nReturn a JSON object with keys: narration_script (refined full text), title (improved YouTube title), improvements_made (brief list).` }] }) }}",
+        "jsonBody": "={{ JSON.stringify({ model: $env.CLAUDE_MODEL || 'claude-opus-4-7', max_tokens: 8192, messages: [{ role: 'user', content: `You are an elite YouTube scriptwriter. Rewrite this script to maximize viewer retention, emotional impact, and watch time.\\n\\nChannel niche: ${$json.channel_niche}\\nLanguage: ${$json.language}\\nTarget duration: ${$json.target_duration_minutes} minutes\\n\\nRough script to refine:\\n${$json.script.narration_script}\\n\\nReturn a JSON object with keys: narration_script (refined full text), title (improved YouTube title), improvements_made (brief list).` }] }) }}",
         "options": { "response": { "response": { "responseFormat": "json" } } }
       },
       "id": "a1000011-0000-0000-0000-000000000011",
@@ -182,7 +193,7 @@
         },
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ model: $env.OPENAI_TEXT_MODEL || 'gpt-4.1-mini', input: [{ role: 'system', content: 'You are a YouTube retention editor. Return valid JSON only.' }, { role: 'user', content: `QA check this script. Score 0-100 for: retention, emotional clarity, topic accuracy, YouTube suitability.\\nReturn JSON: score_0_100, verdict (pass/fail), issues (array), suggested_fixes (array).\\n\\nScript:\\n${$json.script.narration_script}` }], text: { format: { type: 'json_object' } } }) }}",
+        "jsonBody": "={{ JSON.stringify({ model: $env.OPENAI_TEXT_MODEL || 'gpt-5.4-mini', input: [{ role: 'system', content: 'You are a YouTube retention editor. Return valid JSON only.' }, { role: 'user', content: `QA check this script. Score 0-100 for: retention, emotional clarity, topic accuracy, YouTube suitability.\\nReturn JSON: score_0_100, verdict (pass/fail), issues (array), suggested_fixes (array).\\n\\nScript:\\n${$json.script.narration_script}` }], text: { format: { type: 'json_object' } } }) }}",
         "options": { "response": { "response": { "responseFormat": "json" } } }
       },
       "id": "a1000013-0000-0000-0000-000000000013",
@@ -215,7 +226,7 @@
         },
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ model: $env.OPENAI_TEXT_MODEL || 'gpt-4.1-mini', input: [{ role: 'system', content: 'You are an AI video director. Return valid JSON only.' }, { role: 'user', content: `Break this ${$json.target_duration_minutes}-minute script into ${$json.scene_seconds}-second cinematic scenes.\\n\\nFor each scene output: scene_id (number), start_sec, end_sec, narration_excerpt (exact script text for this scene), image_prompt (for DALL-E, describe visual), video_prompt (for Veo3/Runway text-to-video), camera_motion, sound_design, negative_prompt.\\n\\nVisual style: ${$json.visual_style}\\n\\nReturn JSON: style_bible, scenes (array).\\n\\nScript:\\n${$json.script.narration_script}` }], text: { format: { type: 'json_object' } } }) }}",
+        "jsonBody": "={{ JSON.stringify({ model: $env.OPENAI_TEXT_MODEL || 'gpt-5.4-mini', input: [{ role: 'system', content: 'You are an AI video director. Return valid JSON only.' }, { role: 'user', content: `Break this ${$json.target_duration_minutes}-minute script into ${$json.scene_seconds}-second cinematic scenes.\\n\\nFor each scene output: scene_id (number), start_sec, end_sec, narration_excerpt (exact script text for this scene), image_prompt (for DALL-E, describe visual), video_prompt (for Veo3/Runway text-to-video), camera_motion, sound_design, negative_prompt.\\n\\nVisual style: ${$json.visual_style}\\n\\nReturn JSON: style_bible, scenes (array).\\n\\nScript:\\n${$json.script.narration_script}` }], text: { format: { type: 'json_object' } } }) }}",
         "options": { "response": { "response": { "responseFormat": "json" } } }
       },
       "id": "a1000015-0000-0000-0000-000000000015",
@@ -238,7 +249,7 @@
     {
       "parameters": {
         "mode": "runOnceForAllItems",
-        "jsCode": "const base = $input.first().json;\nconst scenes = base.scene_plan.scenes || [];\nreturn scenes.map(scene => ({\n  json: {\n    episode_id: base.episode_id,\n    workspace: base.workspace,\n    title: base.script.title,\n    narration_script: base.script.narration_script,\n    thumbnail_text: base.topic.thumbnail_text,\n    seo_keywords: base.topic.seo_keywords,\n    style_bible: base.scene_plan.style_bible,\n    scene\n  }\n}));"
+        "jsCode": "const base = $input.first().json;\nconst scenes = base.scene_plan.scenes || [];\nreturn scenes.map(scene => ({\n  json: {\n    episode_id: base.episode_id,\n    workspace: base.workspace,\n    title: base.script.title,\n    narration_script: base.script.narration_script,\n    thumbnail_text: base.topic.thumbnail_text,\n    seo_keywords: base.topic.seo_keywords,\n    core_emotion: base.topic.core_emotion || null,\n    style_bible: base.scene_plan.style_bible,\n    scene\n  }\n}));"
       },
       "id": "a1000017-0000-0000-0000-000000000017",
       "name": "Code - Split Scenes",
@@ -259,7 +270,7 @@
         },
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ model: $env.OPENAI_IMAGE_MODEL || 'gpt-image-2', prompt: `${$json.style_bible}\\nScene ${$json.scene.scene_id}: ${$json.scene.image_prompt}\\nNegative: ${$json.scene.negative_prompt}\\nCinematic 16:9, no text, no watermark, no logo.`, size: '1792x1024' }) }}",
+        "jsonBody": "={{ JSON.stringify({ model: $env.OPENAI_IMAGE_MODEL || 'gpt-image-2', prompt: `${$json.style_bible}\\nScene ${$json.scene.scene_id}: ${$json.scene.image_prompt}\\nNegative: ${$json.scene.negative_prompt}\\nCinematic 16:9, no text, no watermark, no logo.`, size: '1536x1024' }) }}",
         "options": { "response": { "response": { "responseFormat": "json" } } }
       },
       "id": "a1000018-0000-0000-0000-000000000018",
@@ -281,7 +292,7 @@
     {
       "parameters": {
         "mode": "runOnceForAllItems",
-        "jsCode": "const items = $input.all().map(i => i.json);\nif (!items.length) throw new Error('No scene items to build manifest');\nconst base = items[0];\n\nconst manifest = {\n  episode_id: base.episode_id,\n  workspace: base.workspace,\n  title: base.title,\n  narration_script: base.narration_script,\n  thumbnail_text: base.thumbnail_text,\n  seo_keywords: base.seo_keywords || [],\n  scenes: items.map(item => ({\n    scene_id: String(item.scene.scene_id),\n    start_sec: item.scene.start_sec || 0,\n    end_sec: item.scene.end_sec || parseInt($env.SCENE_VIDEO_SECONDS || '8'),\n    narration_excerpt: item.scene.narration_excerpt || '',\n    image: item.image_url || null,\n    video_prompt: item.scene.video_prompt || item.scene.image_prompt || '',\n    sound_design: item.scene.sound_design || 'ambient'\n  }))\n};\nreturn [{ json: manifest }];"
+        "jsCode": "const items = $input.all().map(i => i.json);\nif (!items.length) throw new Error('No scene items to build manifest');\nconst base = items[0];\n\nconst manifest = {\n  episode_id: base.episode_id,\n  workspace: base.workspace,\n  title: base.title,\n  narration_script: base.narration_script,\n  thumbnail_text: base.thumbnail_text,\n  seo_keywords: base.seo_keywords || [],\n  core_emotion: base.core_emotion || null,\n  scenes: items.map(item => ({\n    scene_id: String(item.scene.scene_id),\n    start_sec: item.scene.start_sec || 0,\n    end_sec: item.scene.end_sec || parseInt($env.SCENE_VIDEO_SECONDS || '8'),\n    narration_excerpt: item.scene.narration_excerpt || '',\n    image: item.image_url || null,\n    video_prompt: item.scene.video_prompt || item.scene.image_prompt || '',\n    sound_design: item.scene.sound_design || 'ambient'\n  }))\n};\nreturn [{ json: manifest }];"
       },
       "id": "a1000020-0000-0000-0000-000000000020",
       "name": "Code - Build Manifest",
@@ -302,7 +313,7 @@
         },
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ model: $env.OPENAI_TEXT_MODEL || 'gpt-4.1-mini', input: [{ role: 'system', content: 'You are a YouTube SEO strategist. Return valid JSON only.' }, { role: 'user', content: `Create upload metadata for this YouTube video.\\nTitle: ${$json.title}\\nKeywords: ${JSON.stringify($json.seo_keywords)}\\nReturn JSON: final_title, description (with chapters), tags (array, max 30), chapters (array of {time, title}).` }], text: { format: { type: 'json_object' } } }) }}",
+        "jsonBody": "={{ JSON.stringify({ model: $env.OPENAI_TEXT_MODEL || 'gpt-5.4-mini', input: [{ role: 'system', content: 'You are a YouTube SEO strategist. Return valid JSON only.' }, { role: 'user', content: `Create upload metadata for this YouTube video.\\nTitle: ${$json.title}\\nKeywords: ${JSON.stringify($json.seo_keywords)}\\nReturn JSON: final_title, description (with chapters), tags (array, max 30), chapters (array of {time, title}).` }], text: { format: { type: 'json_object' } } }) }}",
         "options": { "response": { "response": { "responseFormat": "json" } } }
       },
       "id": "a1000021-0000-0000-0000-000000000021",
@@ -335,14 +346,25 @@
         },
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ model: $env.OPENAI_IMAGE_MODEL || 'gpt-image-2', prompt: `YouTube thumbnail for: ${$json.title}. Text overlay area: ${$json.thumbnail_text}. Style: ${$json.seo_keywords?.join(', ')}. Cinematic, emotional, high contrast, no watermark, no logo.`, size: '1792x1024' }) }}",
+        "jsonBody": "={{ JSON.stringify({ model: $env.OPENAI_IMAGE_MODEL || 'gpt-image-2', prompt: `YouTube thumbnail for: ${$json.title}. Text overlay area: ${$json.thumbnail_text}. Style: ${$json.seo_keywords?.join(', ')}. Cinematic, emotional, high contrast, no watermark, no logo.`, size: '1536x1024' }) }}",
         "options": { "response": { "response": { "responseFormat": "json" } } }
       },
       "id": "a1000023-0000-0000-0000-000000000023",
       "name": "HTTP - Generate Thumbnail",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [4320, -100]
+      "position": [4320, 80]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const img = $input.first().json;\nconst url = img.data?.[0]?.url || null;\nconst manifest = $('Code - Parse SEO').first().json;\nreturn [{ json: { ...manifest, thumbnail_url: url } }];"
+      },
+      "id": "a1000027-0000-0000-0000-000000000027",
+      "name": "Code - Attach Thumbnail",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [4560, 80]
     },
     {
       "parameters": {
@@ -361,7 +383,7 @@
       "name": "HTTP - Trigger Python Worker",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [4320, 80]
+      "position": [4800, 80]
     },
     {
       "parameters": {
@@ -382,19 +404,16 @@
     "Webhook Trigger": { "main": [[{ "node": "Code - Merge Config", "type": "main", "index": 0 }]] },
     "Code - Merge Config": { "main": [[{ "node": "Postgres - Get Prev Topics", "type": "main", "index": 0 }]] },
     "Postgres - Get Prev Topics": { "main": [[{ "node": "Code - Aggregate Topics", "type": "main", "index": 0 }]] },
-    "Code - Aggregate Topics": { "main": [[{ "node": "AI - Generate Topic", "type": "main", "index": 0 }]] },
+    "Code - Aggregate Topics": { "main": [[{ "node": "Code - Fetch YouTube Channel Data", "type": "main", "index": 0 }]] },
+    "Code - Fetch YouTube Channel Data": { "main": [[{ "node": "AI - Generate Topic", "type": "main", "index": 0 }]] },
     "AI - Generate Topic": { "main": [[{ "node": "Code - Parse Topic", "type": "main", "index": 0 }]] },
     "Code - Parse Topic": { "main": [[{ "node": "AI - Write Rough Script", "type": "main", "index": 0 }]] },
     "AI - Write Rough Script": { "main": [[{ "node": "Code - Parse Rough Script", "type": "main", "index": 0 }]] },
     "Code - Parse Rough Script": { "main": [[{ "node": "HTTP - Claude Refine Script", "type": "main", "index": 0 }]] },
     "HTTP - Claude Refine Script": { "main": [[{ "node": "Code - Parse Claude Refinement", "type": "main", "index": 0 }]] },
-    "Code - Parse Claude Refinement": {
-      "main": [[
-        { "node": "AI - QA Script", "type": "main", "index": 0 },
-        { "node": "AI - Scene Breakdown", "type": "main", "index": 0 }
-      ]]
-    },
+    "Code - Parse Claude Refinement": { "main": [[{ "node": "AI - QA Script", "type": "main", "index": 0 }]] },
     "AI - QA Script": { "main": [[{ "node": "Code - QA Gate", "type": "main", "index": 0 }]] },
+    "Code - QA Gate": { "main": [[{ "node": "AI - Scene Breakdown", "type": "main", "index": 0 }]] },
     "AI - Scene Breakdown": { "main": [[{ "node": "Code - Parse Scenes", "type": "main", "index": 0 }]] },
     "Code - Parse Scenes": { "main": [[{ "node": "Code - Split Scenes", "type": "main", "index": 0 }]] },
     "Code - Split Scenes": { "main": [[{ "node": "HTTP - Generate Scene Image", "type": "main", "index": 0 }]] },
@@ -402,12 +421,9 @@
     "Code - Normalize Image": { "main": [[{ "node": "Code - Build Manifest", "type": "main", "index": 0 }]] },
     "Code - Build Manifest": { "main": [[{ "node": "HTTP - Generate SEO Metadata", "type": "main", "index": 0 }]] },
     "HTTP - Generate SEO Metadata": { "main": [[{ "node": "Code - Parse SEO", "type": "main", "index": 0 }]] },
-    "Code - Parse SEO": {
-      "main": [[
-        { "node": "HTTP - Generate Thumbnail", "type": "main", "index": 0 },
-        { "node": "HTTP - Trigger Python Worker", "type": "main", "index": 0 }
-      ]]
-    },
+    "Code - Parse SEO": { "main": [[{ "node": "HTTP - Generate Thumbnail", "type": "main", "index": 0 }]] },
+    "HTTP - Generate Thumbnail": { "main": [[{ "node": "Code - Attach Thumbnail", "type": "main", "index": 0 }]] },
+    "Code - Attach Thumbnail": { "main": [[{ "node": "HTTP - Trigger Python Worker", "type": "main", "index": 0 }]] },
     "HTTP - Trigger Python Worker": { "main": [[{ "node": "Respond to Webhook", "type": "main", "index": 0 }]] }
   },
   "active": false,

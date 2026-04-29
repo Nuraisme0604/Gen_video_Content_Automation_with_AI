@@ -1,218 +1,245 @@
-# 🐕 Dog Psychology Content Engine v2.0 — Bản Hoàn Thiện
+# AI YouTube Content Engine v3.0
 
-**Phiên bản:** 2.0.0
-**Mục tiêu:** Tự động hóa hoàn toàn quy trình sản xuất video storytelling dài 18 phút về tâm lý học loài chó (2 video/tuần) cho YouTube và TikTok.
-**Output:** File `Private Draft` trên YouTube và TikTok kèm đầy đủ Metadata.
+**Phiên bản:** 3.0.0
+**Mục tiêu:** Tự động hóa quy trình sản xuất video YouTube cho **bất kỳ niche nào**, dựa trên việc phân tích một kênh YouTube tham chiếu.
+**Output:** Video `master_video.mp4` + thumbnail + subtitle + upload draft lên YouTube.
+
+> Đầu vào: 1 URL kênh YouTube + niche + độ dài mong muốn.
+> Đầu ra: video draft trên YouTube.
 
 ---
 
-## 1. Kiến Trúc Hệ Thống (System Architecture)
-
-Hệ thống hoạt động theo mô hình **Micro-services / Event-driven**, bao gồm các module chính được điều phối bởi n8n:
+## 1. Luồng sản xuất
 
 ```mermaid
 graph TB
-    subgraph "🎯 TRIGGER LAYER"
-        CRON["⏰ Schedule Trigger<br/>T3 & T6, 02:00 AM"]
-        MANUAL["👤 Manual Trigger<br/>Chạy tay khi cần"]
+    INPUT["📥 Input<br/>channel_url + niche + duration"]
+    YT_API["🔍 YouTube Data API v3<br/>Fetch real channel data<br/>(subscribers, top 10 videos, stats)"]
+    GPT_TOPIC["💡 GPT-5.4-mini Topic<br/>Phân tích pattern → topic mới"]
+    GPT_ROUGH["✍️ GPT-5.4-mini Rough Script<br/>15/20 phút theo target_duration"]
+    CLAUDE["🎨 Claude Opus 4.7 Refine<br/>Viết lại cho hay (retention + emotion)"]
+    QA["🔍 GPT-5.4-mini QA Gate<br/>Score ≥ 75 (sequential)"]
+    SCENES["🎬 GPT-5.4-mini Scene Breakdown<br/>~110 scenes × 8s + image prompts"]
+    DALLE["🖼️ gpt-image-2<br/>Scene images (1536x1024)"]
+
+    subgraph WORKER["🐍 Python Worker (parallel)"]
+        ELEVEN["🎙️ ElevenLabs voiceover"]
+        VEO["🎥 Veo3 / Runway video"]
+        MUSIC["🎵 ElevenLabs Music BGM<br/>(emotion-aware, official API)"]
+        ASSEMBLE["🎞️ MoviePy assemble<br/>+ audio ducking"]
+        SUBS["📝 SRT + (optional) burn-in"]
+        THUMB["📸 Thumbnail variants<br/>(download DALL-E URL → 3 variants)"]
     end
 
-    subgraph "🧠 BRAIN LAYER (n8n)"
-        CAL["📅 Content Calendar<br/>Check trùng + Seasonal"]
-        TOPIC["💡 Topic Generator"]
-        SCRIPT["✍️ Script Writer<br/>3000-3500 từ"]
-        QA["🔍 QA Gate<br/>Score ≥ 75"]
-        BREAK["🎬 Scene Breakdown<br/>~135 scenes × 8s"]
-    end
+    UPLOAD["📤 YouTube draft + Telegram"]
 
-    subgraph "🎨 ASSET LAYER (Parallel)"
-        CHAR["🐕 Character Sheet<br/>Anchor Images"]
-        IMG["🖼️ Image Gen<br/>GPT-image-2"]
-        VID["🎥 Video Gen<br/>Runway Gen-4 Turbo"]
-        VOICE["🎙️ Voiceover<br/>ElevenLabs"]
-        THUMB["📸 Thumbnail Gen<br/>3 variants for A/B"]
-    end
-
-    subgraph "🔧 WORKER LAYER (Python)"
-        RENDER["🎞️ FFmpeg Render"]
-        SUB["📝 Subtitle Gen"]
-        SHORT["✂️ TikTok Cutter<br/>3 clips × 60s"]
-    end
-
-    subgraph "📤 DISTRIBUTION LAYER"
-        YT["▶️ YouTube Upload<br/>Private Draft"]
-        TT["🎵 TikTok Upload<br/>Draft"]
-        SEO["🔎 SEO Metadata"]
-        NOTIFY["📱 Telegram Alert"]
-    end
-
-    subgraph "📊 MONITORING"
-        COST["💰 Cost Tracker"]
-        DASH["📈 Dashboard"]
-        DB[(PostgreSQL)]
-    end
-
-    CRON --> CAL
-    MANUAL --> CAL
-    CAL --> TOPIC --> SCRIPT --> QA
-    QA -->|"≥ 75"| BREAK
-    QA -->|"< 75"| NOTIFY
-    BREAK --> CHAR
-    CHAR --> IMG & VID
-    BREAK --> VOICE
-    IMG & VID & VOICE --> RENDER
-    RENDER --> SUB --> SHORT
-    RENDER --> THUMB
-    RENDER --> SEO
-    SUB --> YT
-    SHORT --> TT
-    SEO --> YT
-    THUMB --> YT
-    YT & TT --> NOTIFY
-    
-    IMG & VID & VOICE --> COST
-    COST --> DB
-    DB --> DASH
+    INPUT --> YT_API --> GPT_TOPIC --> GPT_ROUGH --> CLAUDE --> QA
+    QA -->|pass| SCENES --> DALLE --> WORKER --> UPLOAD
+    QA -->|fail| TELEGRAM_FAIL["⚠️ Telegram alert"]
 ```
 
 ---
 
-## 2. Các Module Chính Trọng Tâm
+## 2. Đặc điểm chính
 
-### 2.1 📸 Thumbnail Generator (CRITICAL)
-- **Hoạt động:** Trích xuất 3 keyframe ấn tượng nhất (climax, emotional peak, hook). Gọi GPT-image-2 tạo 3 variants (ví dụ: Close-up emotion, Before/After, Text overlay). Thêm chữ overlay tự động qua Python Pillow.
-- **Tích hợp:** Upload 3 variants lên YouTube để A/B test.
-
-### 2.2 🐕 Character Consistency System (CRITICAL)
-Với 135 scenes, nhân vật chó cần đồng nhất. Dùng giải pháp 3 tầng:
-1. **Character Sheet (GPT-image-2):** Tạo reference sheet (các góc mặt) cho nhân vật chính ở đầu video.
-2. **DNA Prompt:** Chuỗi JSON mô tả cố định, được nối vào **mọi** prompt image/video.
-3. **Frame Chaining:** Dùng frame cuối của scene N làm reference image cho scene N+1.
-
-### 2.3 ✂️ TikTok / YouTube Shorts Repurpose
-- **Hoạt động:** AI lọc ra 3 đoạn script có độ tương tác cao nhất (45-60s). Python Worker cắt video dọc (9:16), chèn hardsub phong cách TikTok (highlight từng từ) và auto-upload dạng Draft lên kênh TikTok.
-
-### 2.4 💰 Cost Tracking & Budget Control
-- Ước tính chi phí một video 18 phút là **~$67-79/video** (trong đó Runway Video Gen chiếm ~70%).
-- Node "Cost Calculator" tính dồn tổng chi phí realtime trong n8n. Nếu vượt ngưỡng `BUDGET_LIMIT`, tự động pause flow và báo Telegram.
+| Tính năng | Mô tả |
+|---|---|
+| **Channel-aware topic** | Phân tích kênh tham chiếu THẬT qua YouTube Data API, không bịa số liệu |
+| **Multi-AI scriptwriting** | GPT viết kịch bản thô → Claude refine để tối ưu retention |
+| **Sequential QA gate** | Tự chấm điểm 0-100, fail-fast nếu < `MIN_QA_SCORE` (chạy TRƯỚC scene breakdown để không tốn tiền DALL-E khi script bị reject) |
+| **Emotion-aware BGM** | ElevenLabs Music generate nhạc instrumental khớp `core_emotion` của topic (melancholic / tense / uplifting...) — official API |
+| **Adaptive BGM duration** | BGM tự gen đúng độ dài video (cap 10min API), loop với crossfade nếu cần |
+| **3-layer audio mix** | Voice 100% + Veo3 native ambient/SFX 30% + BGM 15% — KHÔNG vứt Veo3 native audio như trước |
+| **Image-to-video continuity** | DALL-E image → Veo 3.1 initial frame → visual giữa scene image và video clip khớp nhau |
+| **Subtitle dual-mode** | `.srt` cho YouTube CC, hoặc burn-in (ffmpeg) cho TikTok/Shorts |
+| **Cost guard** | Pre-check budget, abort nếu estimate vượt `BUDGET_LIMIT_PER_VIDEO` |
+| **Generic niche** | Đổi 4 dòng env → sản xuất nội dung niche khác, không sửa code |
 
 ---
 
-## 3. Pipeline Chi Tiết v2.0
+## 3. Stack công nghệ
 
-### Phase 0: Content Calendar Check
-1. Query DB: Kiểm tra cosine similarity các topic đã làm. Tránh trùng lặp.
-2. Nạp thêm data các sự kiện theo mùa (Seasonal Events) tạo topic phù hợp.
-
-### Phase 1: Pre-production (Kịch Bản)
-1. **Trigger:** Chạy Cronjob tự động (02:00 AM T3, T6).
-2. **Topic & Script:** Tạo topic SEO, viết kịch bản 3000-3500 từ (Hook -> Tension -> Climax -> Lesson). Có thêm tag `tiktok_highlights[]`.
-3. **QA Gate:** Trí tuệ nhân tạo (OpenAI) tự chấm điểm. Score < 75 -> Báo Telegram. Score >= 75 -> Phase 2.
-
-### Phase 2: Breakdown & Character Setup
-1. **Character Init:** Tạo Character Sheet (ảnh tham chiếu).
-2. **Breakdown:** Cắt script thành ~80-135 scenes, đính kèm DNA Prompt và Image Reference. Lưu trạng thái `pending` vào PostgreSQL.
-
-### Phase 3: Asset Generation (Chạy Batch)
-1. **Audio/Video Gen:** Gọi API ElevenLabs, Runway Gen-4 Turbo, OpenAI (GPT-image-2).
-2. **Cost Logging:** Mỗi API call lưu log vào bảng `cost_log`. Cập nhật trạng thái scene thành `completed`.
-
-### Phase 4: Render & Assembly (Hậu Kỳ)
-1. Trigger Worker Python để ghép âm thanh và video.
-2. Dùng FFmpeg/MoviePy để render master video, auto-ducking nhạc nền, hardsub.
-3. Xuất Thumbnail (3 variants) và TikTok clips (3x 60s).
-
-### Phase 5: Distribution (Phân Phối)
-1. Cấu hình SEO Metadata.
-2. Upload Google API (YouTube - Private) + TikTok API (Draft).
-3. Push Notification Telegram: Báo chi phí, link review, 3 preview thumbnails.
-4. Clean folder `assets_temp`.
+- **Orchestration:** n8n (Docker)
+- **AI Text:** OpenAI GPT-5.4-mini + Anthropic Claude Opus 4.7
+- **AI Image:** OpenAI `gpt-image-2` (size `1536x1024`)
+- **AI Video:** Google Veo 3.1 (default) hoặc Runway Gen-4 Turbo
+- **AI Voice:** ElevenLabs (`eleven_multilingual_v2`)
+- **AI Music:** ElevenLabs Music (`music_v1`) — **official API** (Suno deprecated vì không có public API)
+- **YouTube data:** YouTube Data API v3
+- **Render:** MoviePy + FFmpeg (Python worker)
+- **DB:** PostgreSQL 15
+- **Notifications:** Telegram Bot API
+- **Deploy:** Docker Compose
 
 ---
 
-## 4. Cấu trúc Repository Code (Project Structure)
+## 4. Cài đặt
 
-```text
-dog-psychology-engine/
-│
-├── .env                     # Chứa API Keys (Không push lên Git)
-├── docker-compose.yml       # Setup n8n, Postgres và Python Worker
-│
-├── n8n_workflows/           # Chứa file JSON export từ n8n
-│   ├── 01_idea_and_script.json
-│   ├── 02_scene_generation.json
-│   └── 03_render_and_upload.json
-│
-├── prompts_library/         # Tài sản sở hữu trí tuệ (IP)
-│   ├── master_story_framework.md
-│   ├── character_dna_template.json
-│   └── qa_scoring_schema.json
-│
-├── worker/                  # Cụm xử lý Video (Python)
-│   ├── requirements.txt
-│   ├── main_server.py       # API nội bộ lắng nghe lệnh từ n8n
-│   ├── video_assembler.py   # Code MoviePy/FFmpeg ghép scene
-│   ├── tiktok_cutter.py     # Cắt video 9:16 + Hardsub
-│   ├── thumbnail_gen.py     # Add text overlay vào keyframe
-│   └── clean_temp.py        # Dọn dẹp RAM/Ổ cứng sau khi render
-│
-└── assets_temp/             # Thư mục tạm chứa file khi đang chạy
+### 4.1 Quick start
+```bash
+git clone <repo-url>
+cd dog-psychology-engine
+cp .env.example .env
+nano .env                          # Điền API keys
+docker compose up -d --build
 ```
 
+### 4.2 Setup n8n
+1. Mở `http://localhost:5678` → tạo admin
+2. Credentials → New → Postgres (Name: `Postgres`, Host: `postgres`, DB/user/pass theo `.env`)
+3. Workflows → Import từ `n8n_workflows/` (3 file: 01, 02, 03)
+4. Activate từng workflow
+
+**Hướng dẫn deploy chi tiết: [`dog-psychology-engine/deploy.md`](./dog-psychology-engine/deploy.md)**
+
 ---
 
-## 5. Các Biến Môi Trường (.env)
+## 5. Test chạy
+
+```bash
+curl -X POST http://localhost:5678/webhook/start-pipeline \
+  -H "Content-Type: application/json" \
+  -d '{
+    "channel_url": "https://www.youtube.com/@MrBeast",
+    "channel_niche": "viral entertainment",
+    "language": "English",
+    "target_duration_minutes": 15
+  }'
+```
+
+Theo dõi:
+```bash
+docker compose logs -f python_worker
+curl http://localhost:8000/api/v1/status/<episode_id>
+```
+
+Output:
+- `assets_temp/final_output/master_video_<id>.mp4`
+- `assets_temp/final_output/subtitles_<id>.srt`
+- `assets_temp/final_output/thumbnails_<id>/variant_*.jpg`
+- Telegram: `✅ RENDER COMPLETE`
+
+---
+
+## 6. Cấu hình niche
+
+Đổi 4 dòng trong `.env` để chuyển sản xuất sang niche khác:
 
 ```env
-# === CORE ===
-NODE_ENV=production
-PIPELINE_MODE=draft          # draft | semi-auto | full-auto
-
-# === OpenAI ===
-OPENAI_API_KEY=sk-...
-OPENAI_TEXT_MODEL=gpt-4.1-mini
-OPENAI_IMAGE_MODEL=gpt-image-2
-
-# === ElevenLabs ===  
-ELEVENLABS_API_KEY=...
-ELEVENLABS_VOICE_ID=...
-ELEVENLABS_MODEL=eleven_multilingual_v2
-
-# === Video Generation ===
-VIDEO_PROVIDER=runway        # runway | kling | fal
-VIDEO_API_URL=https://api.runwayml.com/v1
-VIDEO_API_KEY=...
-VIDEO_MODEL=gen4_turbo
-SCENE_VIDEO_SECONDS=8
-
-# === YouTube ===
-YOUTUBE_CLIENT_ID=...
-YOUTUBE_CLIENT_SECRET=...
-YOUTUBE_REFRESH_TOKEN=...
-YOUTUBE_PRIVACY_STATUS=private
-
-# === Quality Control ===
-MIN_QA_SCORE=75
-BUDGET_LIMIT_PER_VIDEO=100   # USD
-
-# === Database ===
-DATABASE_URL=postgresql://user:pass@localhost:5432/dog_engine
+CHANNEL_NAME=My Channel
+CHANNEL_NICHE=cooking                  # bất kỳ niche nào
+CHANNEL_URL=https://www.youtube.com/@reference_channel
+TARGET_DURATION_MINUTES=20
 ```
 
 ---
 
-## 6. Chiến Lược Xử Lý Lỗi (Error Handling Strategy)
+## 7. Cấu trúc repository
 
-- **API Timeout / 500:** Tự động retry 3 lần với delay tăng dần.
-- **Rate Limit (429):** Tạm dừng dựa vào `Retry-After` header.
-- **Budget Exceeded:** Khóa toàn bộ pipeline, báo tin nhắn khẩn cấp qua Telegram.
-- **n8n / Server Crash:** PostgreSQL lưu trạng thái các scene. Pipeline tự động Resume ngay từ scene bị lỗi, không cần chạy/render lại từ đầu.
+```text
+.
+├── Readme.md                                    # ← Bạn đang đọc
+└── dog-psychology-engine/
+    ├── deploy.md                                # Hướng dẫn triển khai chi tiết
+    ├── README.md                                # README inner (kỹ thuật)
+    ├── docker-compose.yml
+    ├── init.sql                                 # PostgreSQL schema
+    ├── .env.example
+    ├── n8n_workflows/                           # 3 workflow JSON
+    │   ├── 01_idea_and_script.json              # Pipeline chính
+    │   ├── 02_scene_generation.json             # Manual entry với script sẵn
+    │   ├── 03_render_and_upload.json            # Webhook callback từ worker
+    │   └── reference_full_pipeline.json         # Legacy — bỏ qua
+    ├── prompts_library/                         # Templates (optional)
+    └── worker/                                  # FastAPI Python service
+        ├── main_server.py                       # API /api/v1/render + pipeline orchestration
+        ├── video_assembler.py                   # MoviePy ghép + ffmpeg burn-in subs
+        ├── asset_downloader.py                  # ElevenLabs voiceover + Veo3/Runway video
+        ├── elevenlabs_music.py                  # BGM official (default provider)
+        ├── suno_client.py                       # BGM via Suno (legacy/optional, unofficial)
+        ├── thumbnail_gen.py                     # Pillow text overlay (3 variants)
+        ├── tiktok_cutter.py                     # 9:16 crop + hardsub cho Shorts
+        ├── veo3_generator.py                    # Google Veo 3.1 video gen
+        ├── distributor.py                       # YouTube upload + Telegram
+        ├── clean_temp.py                        # Cleanup sau upload
+        └── Dockerfile
+```
+
+> ⚠️ Tên thư mục `dog-psychology-engine/` chỉ là legacy từ project gốc. Engine giờ là generic, không gắn niche cụ thể. Có thể rename sau nếu muốn.
 
 ---
 
-## 7. Lộ Trình Triển Khai (Roadmap)
+## 8. Chi phí ước tính
 
-- **Tuần 1-2 (Foundation):** Setup Docker, Postgres, config YouTube OAuth2, viết prompt templates.
-- **Tuần 3-4 (Asset Pipeline):** Test AI Image (Character consistency), ghép Runway/ElevenLabs vào n8n.
-- **Tuần 5-6 (Full Pipeline):** Xây Python Worker (Render + Subtitle + Thumbnail), chạy end-to-end cho 10 video Draft.
-- **Tuần 7-8 (Optimization):** A/B Test Thumbnail/Title, tinh chỉnh chi phí, kích hoạt auto-post lên TikTok.
+Video 15 phút (~110 scenes × 8s):
+
+| Service | Cost |
+|---|---|
+| GPT-5.4-mini (topic + script + QA + scenes + SEO) | ~$1 |
+| Claude Opus 4.7 (script refine) | ~$0.5 |
+| `gpt-image-2` (~110 scene images + 1 thumbnail) | ~$2-5 |
+| ElevenLabs voiceover (~2500 từ) | ~$1 |
+| Veo 3.1 hoặc Runway Gen-4 Turbo (~110 × 8s) | ~$5-50 |
+| ElevenLabs Music (BGM ~120s instrumental) | ~$0.3 |
+| **Total / video** | **~$10-60** |
+
+> Veo3 rẻ hơn Runway ~10×. Set `VIDEO_PROVIDER=veo3` để tiết kiệm.
+> ElevenLabs Music yêu cầu paid plan ($22/tháng Creator) — set `MUSIC_PROVIDER=static` nếu chỉ test.
+
+---
+
+## 9. Lộ trình triển khai
+
+| Tuần | Mục tiêu |
+|---|---|
+| **1** | Setup Docker, lấy API keys, OAuth YouTube, chạy thành công 1 video draft đầu tiên |
+| **2** | Test phân tích các kênh tham chiếu khác nhau, tinh chỉnh QA score, tối ưu prompt template |
+| **3** | Bật scheduled trigger, monitor cost, xử lý các edge case (Veo3 timeout, ElevenLabs quota) |
+| **4** | A/B test thumbnail, tối ưu retention dựa trên YouTube Analytics, kích hoạt TikTok burn-in |
+
+---
+
+## 10. Error handling
+
+- **API timeout / 5xx:** Auto-retry 3 lần (worker `urllib3.Retry`)
+- **Rate limit 429:** Retry với `Retry-After` header
+- **Budget exceeded:** Worker abort + Telegram alert
+- **QA score < threshold:** Workflow throw error, không vào phase render
+- **Worker crash:** PostgreSQL giữ scene state, chạy lại workflow sẽ resume scenes failed
+- **YouTube refresh token expired:** Worker log lỗi, video vẫn được render local
+
+---
+
+## 11. API keys cần đăng ký (4 service tối thiểu)
+
+| Key env | Service | Dùng để |
+|---|---|---|
+| `OPENAI_API_KEY` | OpenAI | Topic + script + image (DALL-E) + scene breakdown + SEO + QA |
+| `ANTHROPIC_API_KEY` | Anthropic | Claude refine script |
+| `ELEVENLABS_API_KEY` + `ELEVENLABS_VOICE_ID` | ElevenLabs | Voice + Music (1 key dùng cả 2!) |
+| `GOOGLE_API_KEY` + `YOUTUBE_DATA_API_KEY` | Google AI Studio | Veo3 video + YouTube channel analysis (có thể dùng cùng 1 key) |
+
+Optional:
+- `YOUTUBE_CLIENT_ID/SECRET/REFRESH_TOKEN` — auto-upload draft lên YouTube
+- `TELEGRAM_BOT_TOKEN/CHAT_ID` — push notification
+- `VIDEO_API_KEY` — chỉ cần nếu set `VIDEO_PROVIDER=runway`
+
+**Hướng dẫn lấy từng key: xem [`dog-psychology-engine/deploy.md`](./dog-psychology-engine/deploy.md#3-lấy-api-keys) section 3.**
+
+---
+
+## 12. Giới hạn đã biết
+
+Xem [`dog-psychology-engine/deploy.md`](./dog-psychology-engine/deploy.md#10-giới-hạn-đã-biết-sẽ-cải-tiến) section 10:
+- Thumbnail từ DALL-E đã download local (3 variants) nhưng chưa auto-upload lên YouTube qua `youtube.thumbnails().set()` API
+- TikTok highlights chưa auto-extract từ script (workflow không tạo `highlights[]` trong manifest)
+- Character consistency giữa scenes (DALL-E mỗi scene độc lập, không có character DNA)
+- Chưa có frame chaining giữa scene N và N+1
+- ElevenLabs Music yêu cầu paid plan; nếu không có → fallback static BGM
+- **Không có UI cho end-user** — chỉ trigger qua n8n UI hoặc curl webhook
+
+---
+
+## 13. License
+
+Internal project.

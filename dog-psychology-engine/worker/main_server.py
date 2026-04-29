@@ -16,7 +16,7 @@ load_dotenv()
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger(__name__)
 
-DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://user:pass@localhost:5432/content_engine")
+DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://user:pass@postgres:5432/content_engine")
 engine = create_engine(DATABASE_URL, pool_pre_ping=True, pool_size=10, max_overflow=20)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
@@ -48,6 +48,8 @@ class RenderManifest(BaseModel):
     scenes: List[RenderScene]
     seo: Optional[Dict[str, Any]] = None
     highlights: Optional[List[Dict[str, Any]]] = None  # For TikTok/Shorts clips
+    core_emotion: Optional[str] = None  # Drives Suno BGM mood (e.g. "melancholic", "tense", "uplifting")
+    thumbnail_url: Optional[str] = None  # DALL-E thumbnail URL from n8n
 
 
 def _download_single_scene(args: tuple) -> tuple:
@@ -59,46 +61,120 @@ def _download_single_scene(args: tuple) -> tuple:
     return scene_order, scene, results
 
 
-def _ensure_bgm(bgm_path: str):
-    """Generate or download background music. Tries Suno first, falls back to static URL."""
+def _prepare_thumbnail_inputs(manifest: "RenderManifest", assets_dir: str) -> tuple:
+    """
+    Download DALL-E thumbnail từ manifest.thumbnail_url, build texts list từ
+    thumbnail_text + seo_keywords để generate 3 variants. Trả về ([], []) nếu thiếu data.
+    """
+    if not manifest.thumbnail_url:
+        logger.warning(f"[{manifest.episode_id}] No thumbnail_url in manifest. Skipping thumbnail gen.")
+        return [], []
+
+    import requests
+    thumb_path = os.path.join(assets_dir, f"thumbnail_source_{manifest.episode_id}.jpg")
+    try:
+        os.makedirs(assets_dir, exist_ok=True)
+        r = requests.get(manifest.thumbnail_url, timeout=60)
+        r.raise_for_status()
+        with open(thumb_path, "wb") as f:
+            f.write(r.content)
+        logger.info(f"[{manifest.episode_id}] Downloaded thumbnail source: {thumb_path}")
+    except Exception as e:
+        logger.error(f"[{manifest.episode_id}] Failed to download thumbnail_url: {e}")
+        return [], []
+
+    # 3 variants: dùng thumbnail_text + 2 seo keywords làm overlay
+    keywords = (manifest.seo_keywords or [])[:2]
+    texts = [manifest.thumbnail_text] + [k.upper() for k in keywords if k]
+    # Fallback nếu thiếu keywords
+    while len(texts) < 3:
+        texts.append(manifest.thumbnail_text)
+    texts = texts[:3]
+
+    return [thumb_path], texts
+
+
+def _ensure_bgm(bgm_path: str, core_emotion: Optional[str] = None, video_duration_sec: Optional[int] = None):
+    """
+    Generate or download background music.
+    Provider order: try MUSIC_PROVIDER (default elevenlabs) → fallback static URL.
+
+    Args:
+        video_duration_sec: Estimated video duration. BGM length = min(video_duration, 600s API max).
+                            ElevenLabs Music API caps at 600,000ms (10 min). Longer videos sẽ
+                            được loop với crossfade trong video_assembler.
+    """
     if os.path.exists(bgm_path):
         return
 
     os.makedirs(os.path.dirname(bgm_path), exist_ok=True)
-    music_provider = os.getenv("MUSIC_PROVIDER", "suno").lower()
+    music_provider = os.getenv("MUSIC_PROVIDER", "elevenlabs").lower()
 
-    if music_provider == "suno":
-        from suno_client import generate_bgm
+    # Build prompt — emotion-aware if available
+    if core_emotion:
+        prompt = (
+            f"{core_emotion} cinematic background music, instrumental only, no vocals, "
+            f"documentary style, fitting the emotional tone of {core_emotion}"
+        )
+    else:
         prompt = os.getenv("BGM_PROMPT", "calm ambient background music, emotional, no vocals")
-        logger.info("Generating BGM via Suno AI...")
-        if generate_bgm(prompt, bgm_path):
+
+    # Adaptive duration: match video length, capped by API + env override
+    api_max_ms = 600000  # ElevenLabs Music hard limit
+    env_override_ms = int(os.getenv("BGM_DURATION_MS", "0"))
+    if env_override_ms > 0:
+        duration_ms = min(api_max_ms, max(60000, env_override_ms))
+    elif video_duration_sec:
+        # Generate slightly longer than video so loop crossfade has room
+        target_ms = int(video_duration_sec * 1000 * 1.1)
+        duration_ms = min(api_max_ms, max(60000, target_ms))
+    else:
+        duration_ms = 120000  # Fallback default 2 min
+
+    if music_provider == "elevenlabs":
+        from elevenlabs_music import generate_bgm as eleven_gen
+        logger.info(f"Generating BGM via ElevenLabs Music (emotion='{core_emotion or 'default'}', duration={duration_ms}ms = {duration_ms/1000:.0f}s)...")
+        if eleven_gen(prompt, bgm_path, duration_ms=duration_ms):
             return
 
-    # Fallback: download static sample
-    logger.info("Falling back to static BGM download...")
+    elif music_provider == "suno":
+        # Legacy/optional: Suno via unofficial endpoint. Set MUSIC_PROVIDER=suno + SUNO_API_KEY explicitly.
+        from suno_client import generate_bgm as suno_gen
+        logger.warning("Using Suno via unofficial endpoint (studio-api.suno.ai). "
+                       "Recommend switching to MUSIC_PROVIDER=elevenlabs for stability.")
+        if suno_gen(prompt, bgm_path):
+            return
+
+    # Fallback: download from BGM_FALLBACK_URL (configurable, default = public sample)
+    fallback_url = os.getenv(
+        "BGM_FALLBACK_URL",
+        "https://github.com/rafaelreis-hotmart/Audio-Sample-files/raw/master/sample.mp3",
+    )
+    logger.info(f"Falling back to static BGM download from {fallback_url}...")
     try:
         import requests
-        r = requests.get(
-            "https://github.com/rafaelreis-hotmart/Audio-Sample-files/raw/master/sample.mp3",
-            timeout=15,
-        )
+        r = requests.get(fallback_url, timeout=15)
         r.raise_for_status()
         with open(bgm_path, "wb") as f:
             f.write(r.content)
         logger.info(f"Static BGM downloaded to {bgm_path}")
     except Exception as e:
-        logger.error(f"BGM download failed: {e}")
+        logger.error(
+            f"BGM download failed: {e}. Video sẽ được render KHÔNG có nhạc nền. "
+            f"Set BGM_FALLBACK_URL env var hoặc bỏ rỗng BGM file ở {os.path.dirname(bgm_path)} "
+            f"thủ công nếu muốn provide BGM tĩnh."
+        )
 
 
 def process_video_pipeline(manifest: RenderManifest):
-    from video_assembler import assemble_master_video, generate_subtitles
+    from video_assembler import assemble_master_video, generate_subtitles, burn_subtitles_into_video
     from thumbnail_gen import generate_thumbnail_variants
     from tiktok_cutter import extract_tiktok_clips
     from clean_temp import clean_assets_directory
     from distributor import upload_to_youtube, send_telegram_notification
 
     video_id = manifest.episode_id
-    assets_root = os.getenv("ASSETS_DIR", "./assets_temp")
+    assets_root = os.getenv("ASSETS_DIR", "/assets_temp")
     assets_dir = os.path.join(assets_root, str(video_id))
     final_output_dir = os.path.join(assets_root, "final_output")
 
@@ -125,9 +201,11 @@ def process_video_pipeline(manifest: RenderManifest):
 
         logger.info(f"[{video_id}] Starting pipeline: {len(manifest.scenes)} scenes, est. ${total_estimated:.2f}")
 
-        # 3. Prepare BGM before parallel scene processing
-        bgm_path = os.path.join(assets_root, "bgm", "background.mp3")
-        _ensure_bgm(bgm_path)
+        # 3. Prepare BGM before parallel scene processing (emotion-aware, per-video, adaptive duration)
+        bgm_path = os.path.join(assets_root, "bgm", f"background_{video_id}.mp3")
+        scene_seconds = int(os.getenv("SCENE_VIDEO_SECONDS", "8"))
+        estimated_video_sec = len(manifest.scenes) * scene_seconds
+        _ensure_bgm(bgm_path, manifest.core_emotion, video_duration_sec=estimated_video_sec)
 
         # 4. Parallel scene asset download/generation
         runway_key = os.getenv("VIDEO_API_KEY", "")
@@ -148,28 +226,42 @@ def process_video_pipeline(manifest: RenderManifest):
                 try:
                     scene_order, scene, results = future.result()
                     scene_status = "completed" if results.get("video_path") else "failed"
-                    total_cost += COST_PER_SCENE
+                    # Chỉ tính cost cho scenes thực sự thành công
+                    if scene_status == "completed":
+                        total_cost += COST_PER_SCENE
                     completed_scenes.append((scene_order, scene, results, scene_status))
                     logger.info(f"[{video_id}] Scene {scene_order} done: {scene_status}")
                 except Exception as e:
                     scene_order = futures[future]
                     logger.error(f"[{video_id}] Scene {scene_order} exception: {e}")
 
-        # 5. Persist scene results
+        # 5. Persist scene results — ghi đủ tất cả columns trong schema
         with SessionLocal() as db:
             for scene_order, scene, results, scene_status in completed_scenes:
+                # Build error_message nếu scene fail (null nếu OK)
+                err_msg = None
+                if scene_status == "failed":
+                    missing = []
+                    if not results.get("video_path"): missing.append("video")
+                    if not results.get("audio_path"): missing.append("voiceover")
+                    err_msg = f"Asset gen failed: {', '.join(missing) or 'unknown'}"
+
                 db.execute(
                     text(
-                        "INSERT INTO scenes (video_id, scene_index, audio_path, video_path, "
-                        "voiceover_text, status) VALUES (:vid, :idx, :apath, :vpath, :votext, :status)"
+                        "INSERT INTO scenes (video_id, scene_index, voiceover_text, "
+                        "audio_path, video_path, image_path, status, error_message, cost_usd) "
+                        "VALUES (:vid, :idx, :votext, :apath, :vpath, :ipath, :status, :err, :cost)"
                     ),
                     {
                         "vid": video_id,
                         "idx": scene_order,
+                        "votext": scene.narration_excerpt,
                         "apath": results.get("audio_path"),
                         "vpath": results.get("video_path"),
-                        "votext": scene.narration_excerpt,
+                        "ipath": results.get("image_path"),
                         "status": scene_status,
+                        "err": err_msg,
+                        "cost": COST_PER_SCENE if scene_status == "completed" else 0.0,
                     },
                 )
             db.execute(
@@ -178,17 +270,31 @@ def process_video_pipeline(manifest: RenderManifest):
             )
             db.commit()
 
+        # 5b. Fail-fast nếu 0 scenes thành công (tránh mark "uploaded" giả)
+        completed_count = sum(1 for _, _, _, status in completed_scenes if status == "completed")
+        if completed_count == 0:
+            raise RuntimeError(
+                f"All {len(manifest.scenes)} scenes failed. "
+                f"Check API keys and provider configs (Veo3/Runway video gen + ElevenLabs voice)."
+            )
+        if completed_count < len(manifest.scenes):
+            logger.warning(f"[{video_id}] Only {completed_count}/{len(manifest.scenes)} scenes completed — continuing with partial video")
+
         # 6. Assemble video
         logger.info(f"[{video_id}] Assembling video...")
         assemble_master_video(str(video_id))
         generate_subtitles(str(video_id))
-        generate_thumbnail_variants(str(video_id), [], [])
+        burn_subtitles_into_video(str(video_id))  # No-op unless BURN_SUBTITLES=true
+
+        # 6b. Generate thumbnail variants from DALL-E URL (if provided)
+        thumbnail_keyframes, thumbnail_texts = _prepare_thumbnail_inputs(manifest, assets_dir)
+        generate_thumbnail_variants(str(video_id), thumbnail_keyframes, thumbnail_texts)
 
         # 7. Optional TikTok/Shorts clips
         if manifest.highlights:
-            extract_tiktok_clips(str(video_id), manifest.highlights)
+            extract_tiktok_clips(str(video_id), manifest.highlights, title=manifest.title)
 
-        # 8. Upload to YouTube
+        # 8. Upload to YouTube (returns empty string if creds missing or upload fails)
         master_video_path = os.path.join(final_output_dir, f"master_video_{video_id}.mp4")
         seo = manifest.seo or {}
         youtube_url = upload_to_youtube(
@@ -199,10 +305,18 @@ def process_video_pipeline(manifest: RenderManifest):
         )
 
         # 9. Update DB status
+        # 'uploaded' = thực sự upload thành công lên YouTube (có URL trả về)
+        # 'rendered' = master video xong + còn local nhưng chưa lên YouTube (creds thiếu hoặc upload fail)
+        final_status = "uploaded" if youtube_url else "rendered"
         with SessionLocal() as db:
             db.execute(
-                text("UPDATE videos SET status = 'uploaded', total_cost_usd = :cost WHERE id = :id"),
-                {"id": video_id, "cost": total_cost},
+                text("UPDATE videos SET status = :status, total_cost_usd = :cost, youtube_video_id = :yt WHERE id = :id"),
+                {
+                    "id": video_id,
+                    "status": final_status,
+                    "cost": total_cost,
+                    "yt": youtube_url.split("v=")[-1] if youtube_url else None,
+                },
             )
             db.commit()
 
