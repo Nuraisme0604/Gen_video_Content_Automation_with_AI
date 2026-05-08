@@ -1,8 +1,12 @@
 'use client';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { Video, FolderOpen, Plug, Bell, Image, Settings, Key, ScrollText, LayoutDashboard } from 'lucide-react';
+import { useQuery } from '@tanstack/react-query';
+import { Video, FolderOpen, Plug, Bell, Image, Settings, Key, ScrollText, LayoutDashboard, Loader2 } from 'lucide-react';
+import { getSources } from '@/lib/api';
 import { cn } from '@/lib/utils';
+
+const ACTIVE_STATUSES = ['pending', 'queued', 'fetching', 'fetched', 'sent_to_n8n', 'rendering'];
 
 function useProjectId() {
   const path = usePathname();
@@ -24,10 +28,19 @@ export function Sidebar() {
     localStorage.setItem('vca:lastProjectId', projectId);
   }
 
+  // Poll active sources for current project — show count badge on "Quản lý video"
+  const { data: sources = [] } = useQuery({
+    queryKey: ['sources', projectId],
+    queryFn: () => projectId ? getSources(projectId) : Promise.resolve([]),
+    enabled: !!projectId,
+    refetchInterval: 5000,
+  });
+  const runningCount = (sources as any[]).filter(s => ACTIVE_STATUSES.includes(s.status)).length;
+
   const NAV = [
     { href: '/projects', icon: LayoutDashboard, label: 'Dự án', exact: true, requiresProject: false },
     { href: projectId ? `/projects/${projectId}/create` : '/projects', icon: Video, label: 'Tạo video', requiresProject: true },
-    { href: projectId ? `/projects/${projectId}/videos` : '/projects', icon: FolderOpen, label: 'Quản lý video', requiresProject: true },
+    { href: projectId ? `/projects/${projectId}/videos` : '/projects', icon: FolderOpen, label: 'Quản lý video', requiresProject: true, badge: runningCount },
     { href: '/api-sources', icon: Plug, label: 'Nguồn API', requiresProject: false },
     { href: '/notifications', icon: Bell, label: 'Thông báo', requiresProject: false },
     { href: projectId ? `/projects/${projectId}/frames` : '/projects', icon: Image, label: 'Quản lý frame', requiresProject: true },
@@ -47,7 +60,7 @@ export function Sidebar() {
   return (
     <aside className="sidebar w-[240px] shrink-0 flex flex-col py-4 overflow-y-auto">
       <nav className="flex-1 px-2 space-y-0.5">
-        {NAV.map(({ href, icon: Icon, label, exact, requiresProject }) => {
+        {NAV.map(({ href, icon: Icon, label, exact, requiresProject, badge }: any) => {
           const disabled = requiresProject && !projectId;
           return (
             <Link key={`${href}-${label}`} href={href}
@@ -60,8 +73,14 @@ export function Sidebar() {
                   : 'text-zinc-400 hover:text-white hover:bg-white/5',
               )}>
               <Icon size={16} />
-              {label}
-              {disabled && <span className="ml-auto text-[10px]">⚠️</span>}
+              <span className="flex-1">{label}</span>
+              {badge > 0 && !disabled && (
+                <span className="flex items-center gap-1 text-[10px] bg-violet-600/30 text-violet-300 px-1.5 py-0.5 rounded-full">
+                  <Loader2 size={9} className="animate-spin" />
+                  {badge}
+                </span>
+              )}
+              {disabled && <span className="text-[10px]">⚠️</span>}
             </Link>
           );
         })}

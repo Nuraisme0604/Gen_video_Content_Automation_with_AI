@@ -1,9 +1,83 @@
 'use client';
 import { useState, useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { getApiKeys, createApiKey, toggleApiKey, deleteApiKey, resetApiKeyQuota, testTelegram } from '@/lib/api';
-import { Plus, CheckCircle2, XCircle, Trash2, Send, Eye, EyeOff, RotateCcw, Gauge, Sparkles } from 'lucide-react';
+import { getApiKeys, createApiKey, toggleApiKey, deleteApiKey, resetApiKeyQuota, testTelegram, testApiKey } from '@/lib/api';
+import { Plus, CheckCircle2, XCircle, Trash2, Send, Eye, EyeOff, RotateCcw, Gauge, Sparkles, Loader2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { toast } from 'sonner';
+
+// Friendly display name + concrete model coverage (matches AiConfigPanel)
+const PROVIDER_INFO: Record<string, {
+  displayName: string;
+  description: string;
+  modelsByCapability: Record<string, string[]>;
+}> = {
+  google: {
+    displayName: 'Google AI',
+    description: 'Gemini · Imagen · Veo',
+    modelsByCapability: {
+      SCRIPT: ['gemini-2.5-flash', 'gemini-2.5-pro'],
+      IMAGE:  ['imagen-4-fast', 'imagen-4-ultra (paid)'],
+      VIDEO:  ['veo-3 (paid)'],
+      VOICE:  ['google-tts-vi'],
+    },
+  },
+  openai: {
+    displayName: 'OpenAI',
+    description: 'GPT · DALL-E · TTS',
+    modelsByCapability: {
+      SCRIPT: ['gpt-4o', 'gpt-4o-mini'],
+      IMAGE:  ['dall-e-3'],
+      VOICE:  ['tts-1 (Onyx, Alloy...)'],
+    },
+  },
+  anthropic: {
+    displayName: 'Anthropic',
+    description: 'Claude (text only)',
+    modelsByCapability: {
+      SCRIPT: ['claude-opus-4-7', 'claude-sonnet-4-6'],
+    },
+  },
+  elevenlabs: {
+    displayName: 'ElevenLabs',
+    description: 'Voice + Music',
+    modelsByCapability: {
+      VOICE: ['eleven-multilingual-v2', 'eleven-turbo-v2'],
+      BGM:   ['eleven-music'],
+    },
+  },
+  runway: {
+    displayName: 'Runway ML',
+    description: 'Video gen',
+    modelsByCapability: {
+      VIDEO: ['gen-3-alpha', 'gen-3-turbo'],
+    },
+  },
+  replicate: {
+    displayName: 'Replicate',
+    description: 'Đa model (Flux, Kling, Luma...)',
+    modelsByCapability: {
+      IMAGE: ['flux-1.1-pro'],
+      VIDEO: ['kling-1.6', 'luma-dream'],
+    },
+  },
+  pexels: {
+    displayName: 'Pexels',
+    description: 'Stock ảnh + video (Free)',
+    modelsByCapability: {
+      IMAGE: ['pexels-stock'],
+      VIDEO: ['pexels-video'],
+    },
+  },
+};
+
+function getProviderInfo(provider: string) {
+  return PROVIDER_INFO[provider.toLowerCase()] || {
+    displayName: provider || 'Unknown',
+    description: 'Provider tuỳ chỉnh',
+    modelsByCapability: {},
+  };
+}
 
 const TYPE_TABS = [
   { label: 'Tất cả', value: 'ALL' },
@@ -93,9 +167,10 @@ export default function ApiSourcesPage() {
     return Array.from(map.values());
   }, [filteredKeys]);
 
+  const errMsg = (e: any) => e?.response?.data?.message || e?.message || 'Lỗi không xác định';
+
   const add = useMutation({
     mutationFn: async () => {
-      // Create one ApiKey row per selected capability
       if (!form.capabilities.length) throw new Error('Phải chọn ít nhất 1 loại sử dụng');
       const promises = form.capabilities.map(type =>
         createApiKey({
@@ -112,18 +187,24 @@ export default function ApiSourcesPage() {
       qc.invalidateQueries({ queryKey: ['api-keys'] });
       setShowAdd(false);
       setShowKey(false);
+      const count = form.capabilities.length;
+      const provName = getProviderInfo(form.provider).displayName;
       setForm({ key: '', provider: '', capabilities: [], label: '', quotaLimit: '' });
+      toast.success(`Đã thêm key ${provName}`, { description: `Cho ${count} loại tác vụ` });
     },
+    onError: (e: any) => toast.error('Thêm key thất bại', { description: errMsg(e) }),
   });
 
   const toggle = useMutation({
     mutationFn: toggleApiKey,
     onSuccess: () => qc.invalidateQueries({ queryKey: ['api-keys'] }),
+    onError: (e: any) => toast.error('Đổi trạng thái thất bại', { description: errMsg(e) }),
   });
 
   const resetQuota = useMutation({
     mutationFn: resetApiKeyQuota,
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['api-keys'] }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['api-keys'] }); toast.success('Đã reset quota'); },
+    onError: (e: any) => toast.error('Reset quota thất bại', { description: errMsg(e) }),
   });
 
   const del = useMutation({
@@ -133,10 +214,20 @@ export default function ApiSourcesPage() {
 
   const delGroup = useMutation({
     mutationFn: async (ids: string[]) => Promise.all(ids.map(id => deleteApiKey(id))),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['api-keys'] }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['api-keys'] }); toast.success('Đã xoá key'); },
+    onError: (e: any) => toast.error('Xoá key thất bại', { description: errMsg(e) }),
   });
 
   const testTg = useMutation({ mutationFn: testTelegram });
+
+  const testKey = useMutation({
+    mutationFn: () => testApiKey({ key: form.key, provider: form.provider }),
+    onSuccess: (r: any) => {
+      if (r?.ok) toast.success('Key hợp lệ', { description: `Phản hồi ${r.latencyMs}ms` });
+      else toast.error('Key không sử dụng được', { description: r?.error || 'Unknown' });
+    },
+    onError: (e: any) => toast.error('Test thất bại', { description: errMsg(e) }),
+  });
 
   const toggleCap = (cap: string) => {
     setForm(f => ({
@@ -196,13 +287,13 @@ export default function ApiSourcesPage() {
             const allActive = group.every(g => g.isActive);
             const ids = group.map(g => g.id);
 
+            const info = getProviderInfo(k.provider);
             return (
               <div key={idx} className={cn('flex items-center gap-4 px-4 py-3', !allActive && 'opacity-50')}>
-                {/* Provider + capabilities */}
-                <div className="shrink-0 w-40">
-                  <div className="font-mono text-xs bg-zinc-800 px-2 py-1 rounded text-center capitalize mb-1.5">
-                    {k.provider}
-                  </div>
+                {/* Provider info */}
+                <div className="shrink-0 w-48">
+                  <div className="text-sm font-medium text-white mb-0.5">{info.displayName}</div>
+                  <div className="text-[11px] text-zinc-500 mb-1.5">{info.description}</div>
                   <div className="flex flex-wrap gap-1">
                     {types.map(t => (
                       <span key={t} className="text-[10px] bg-violet-500/20 text-violet-300 px-1.5 py-0.5 rounded">
@@ -214,7 +305,17 @@ export default function ApiSourcesPage() {
 
                 <div className="flex-1 min-w-0">
                   {k.label && <div className="text-xs text-zinc-400 mb-0.5">{k.label}</div>}
-                  <div className="font-mono text-sm text-zinc-300">{k.keyMasked}</div>
+                  <div className="font-mono text-xs text-zinc-300 mb-1">{k.keyMasked}</div>
+                  {/* Show concrete models this key serves */}
+                  <div className="text-[10px] text-zinc-500">
+                    Models:{' '}
+                    {types.flatMap(t => info.modelsByCapability[t] || []).slice(0, 4).map(m => (
+                      <span key={m} className="font-mono mr-1.5 text-zinc-400">{m}</span>
+                    ))}
+                    {types.flatMap(t => info.modelsByCapability[t] || []).length === 0 && (
+                      <span className="text-zinc-600">— (provider tuỳ chỉnh, model nhập tay)</span>
+                    )}
+                  </div>
                 </div>
 
                 {pct !== null && (
@@ -306,16 +407,31 @@ export default function ApiSourcesPage() {
               </div>
 
               {form.key && (
-                <div className="mt-2 flex items-center gap-2 text-xs">
-                  {detection.provider ? (
-                    <>
-                      <Sparkles size={12} className="text-violet-400" />
-                      <span className="text-violet-300">
-                        Detected: <span className="font-medium">{detection.description}</span>
-                      </span>
-                    </>
-                  ) : (
-                    <span className="text-amber-400">{detection.description}</span>
+                <div className="mt-2">
+                  <div className="flex items-center gap-2 text-xs">
+                    {detection.provider ? (
+                      <>
+                        <Sparkles size={12} className="text-violet-400" />
+                        <span className="text-violet-300">
+                          Phát hiện: <span className="font-medium">{getProviderInfo(detection.provider).displayName}</span>
+                          <span className="text-zinc-500"> · {detection.description}</span>
+                        </span>
+                      </>
+                    ) : (
+                      <span className="text-amber-400">{detection.description}</span>
+                    )}
+                  </div>
+                  {/* Show models this provider serves */}
+                  {detection.provider && (
+                    <div className="mt-2 text-[11px] text-zinc-500 bg-zinc-900 rounded p-2 border border-zinc-800">
+                      <div className="text-zinc-400 mb-1">Key này dùng được cho:</div>
+                      {Object.entries(getProviderInfo(detection.provider).modelsByCapability).map(([cap, models]) => (
+                        <div key={cap} className="flex gap-2 leading-relaxed">
+                          <span className="text-violet-400 font-medium w-14">{cap}:</span>
+                          <span className="font-mono">{models.join(', ')}</span>
+                        </div>
+                      ))}
+                    </div>
                   )}
                 </div>
               )}
@@ -378,7 +494,14 @@ export default function ApiSourcesPage() {
               </div>
             )}
 
-            <div className="flex gap-2 justify-end pt-2">
+            <div className="flex gap-2 justify-end pt-2 items-center">
+              <button onClick={() => testKey.mutate()}
+                disabled={!form.key || !form.provider || testKey.isPending}
+                className="flex items-center gap-1.5 text-sm border border-zinc-700 text-zinc-300 px-3 py-1.5 rounded-lg hover:border-violet-500 disabled:opacity-50">
+                {testKey.isPending ? <Loader2 size={13} className="animate-spin" /> : <Sparkles size={13} />}
+                {testKey.isPending ? 'Đang test...' : 'Test kết nối'}
+              </button>
+              <div className="flex-1" />
               <button onClick={() => { setShowAdd(false); setForm({ key:'', provider:'', capabilities:[], label:'', quotaLimit:'' }); }}
                 className="text-sm text-zinc-400 px-3 py-1.5 hover:text-white">Huỷ</button>
               <button onClick={() => add.mutate()}

@@ -34,6 +34,43 @@
     },
     {
       "parameters": {
+        "url": "http://backend:3001/api/v1/api-keys/internal/active",
+        "method": "GET",
+        "sendQuery": true,
+        "specifyQuery": "keypair",
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "capability",
+              "value": "SCRIPT"
+            }
+          ]
+        },
+        "sendHeaders": true,
+        "specifyHeaders": "keypair",
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Internal-Secret",
+              "value": "={{$env.INTERNAL_API_SECRET || 'dev-internal-secret'}}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 10000
+        }
+      },
+      "id": "b23804d3-115a-4a1f-9de1-4c2d62e6f264",
+      "name": "Get Script API Key",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        360,
+        200
+      ]
+    },
+    {
+      "parameters": {
         "method": "POST",
         "url": "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
         "sendHeaders": true,
@@ -41,7 +78,7 @@
           "parameters": [
             {
               "name": "Authorization",
-              "value": "=Bearer {{$env.OPENAI_API_KEY}}"
+              "value": "=Bearer {{ $('Get Script API Key').first().json.key }}"
             },
             {
               "name": "Content-Type",
@@ -51,7 +88,7 @@
         },
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ model: $env.OPENAI_TEXT_MODEL || 'gemini-2.0-flash', messages: [{ role: 'system', content: 'You are an AI video director. Return ONLY valid JSON, no markdown.' }, { role: 'user', content: 'Break this ' + $json.scene_seconds + '-second-per-scene script into cinematic scenes. Return JSON: {style_bible, scenes: [{scene_id, start_sec, end_sec, narration_excerpt, image_prompt, video_prompt, camera_motion, sound_design}]}. Visual style: ' + $json.visual_style + '. Script: ' + $json.narration_script }] }) }}",
+        "jsonBody": "={{ JSON.stringify({ model: $env.OPENAI_TEXT_MODEL || 'gemini-2.5-flash', messages: [{ role: 'system', content: 'You are an AI video director. Return ONLY valid JSON, no markdown.' }, { role: 'user', content: 'Break this ' + $('Code - Validate Input').first().json.scene_seconds + '-second-per-scene script into cinematic scenes. Return JSON: {style_bible, scenes: [{scene_id, start_sec, end_sec, narration_excerpt, image_prompt, video_prompt, camera_motion, sound_design}]}. Visual style: ' + $('Code - Validate Input').first().json.visual_style + '. Script: ' + $('Code - Validate Input').first().json.narration_script }] }) }}",
         "options": {
           "response": {
             "response": {
@@ -66,7 +103,7 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
-        480,
+        600,
         200
       ],
       "retryOnFail": true,
@@ -83,7 +120,7 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        720,
+        840,
         200
       ]
     },
@@ -214,7 +251,6 @@
       ]
     }
   ],
-  "pinData": {},
   "connections": {
     "Webhook - Receive Script": {
       "main": [
@@ -231,7 +267,7 @@
       "main": [
         [
           {
-            "node": "AI - Scene Breakdown",
+            "node": "Get Script API Key",
             "type": "main",
             "index": 0
           }
@@ -314,6 +350,17 @@
           }
         ]
       ]
+    },
+    "Get Script API Key": {
+      "main": [
+        [
+          {
+            "node": "AI - Scene Breakdown",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     }
   },
   "active": false,
@@ -322,13 +369,5 @@
     "timezone": "Asia/Ho_Chi_Minh",
     "saveManualExecutions": true
   },
-  "meta": {
-    "description": "Entry point when you already have a script. POST narration_script + title to trigger scene breakdown, DALL-E images, and Python worker."
-  },
-  "tags": [
-    "youtube",
-    "ai-video",
-    "scenes",
-    "manual-entry"
-  ]
+  "id": "8Ecv59mtxeW1bjDi"
 }

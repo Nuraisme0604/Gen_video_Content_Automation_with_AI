@@ -23,7 +23,8 @@
     "tailwind-merge": "^2.5.5",
     "lucide-react": "^0.469.0",
     "date-fns": "^4.1.0",
-    "axios": "^1.7.0"
+    "axios": "^1.7.0",
+    "sonner": "^1.7.1"
   },
   "devDependencies": {
     "@types/node": "^20.16.0",

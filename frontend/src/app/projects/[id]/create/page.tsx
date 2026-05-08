@@ -1,8 +1,9 @@
 'use client';
-import { useState, use, useEffect } from 'react';
+import { useState, use, useEffect, useRef } from 'react';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { createYoutubeSource, createManualSource, getProject } from '@/lib/api';
 import { AlertTriangle, Youtube, PenLine, Newspaper, BookOpen, Save, Check } from 'lucide-react';
+import { toast } from 'sonner';
 import { VoiceConfigPanel } from '@/components/video/VoiceConfigPanel';
 import { CharacterRefSheet } from '@/components/video/CharacterRefSheet';
 import { AiConfigPanel } from '@/components/video/AiConfigPanel';
@@ -25,20 +26,31 @@ const EMPTY: FormState = { tab: 'youtube', url: '', title: '', script: '', descr
 export default function CreatePage({ params }: { params: Promise<{ id: string }> }) {
   const { id: projectId } = use(params);
   const draftKey = `vca:draft:${projectId}`;
+  const activeKey = `vca:active-source:${projectId}`;
 
   const { data: project } = useQuery({ queryKey: ['project', projectId], queryFn: () => getProject(projectId) });
   const [voiceConfig, setVoiceConfig] = useState<any>({});
   const [form, setForm] = useState<FormState>(EMPTY);
-  const [activeSourceId, setActiveSourceId] = useState<string | null>(null);
+  const [activeSourceId, setActiveSourceIdState] = useState<string | null>(null);
   const [draftSavedAt, setDraftSavedAt] = useState<number | null>(null);
+  const progressRef = useRef<HTMLDivElement | null>(null);
 
-  // Restore draft from localStorage
+  // Persist activeSourceId so navigating away + back resumes the in-progress pipeline
+  const setActiveSourceId = (id: string | null) => {
+    setActiveSourceIdState(id);
+    if (id) localStorage.setItem(activeKey, id);
+    else localStorage.removeItem(activeKey);
+  };
+
+  // Restore draft AND active source on mount
   useEffect(() => {
     const saved = localStorage.getItem(draftKey);
     if (saved) {
       try { setForm({ ...EMPTY, ...JSON.parse(saved) }); } catch {}
     }
-  }, [draftKey]);
+    const active = localStorage.getItem(activeKey);
+    if (active) setActiveSourceIdState(active);
+  }, [draftKey, activeKey]);
 
   const saveDraft = () => {
     localStorage.setItem(draftKey, JSON.stringify(form));
@@ -48,9 +60,21 @@ export default function CreatePage({ params }: { params: Promise<{ id: string }>
 
   const set = (patch: Partial<FormState>) => setForm(f => ({ ...f, ...patch }));
 
+  const scrollToProgress = () => {
+    setTimeout(() => progressRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 100);
+  };
+
+  const errMsg = (e: any) => e?.response?.data?.message || e?.message || 'Lỗi không xác định';
+
   const ytMutation = useMutation({
     mutationFn: () => createYoutubeSource({ projectId, url: form.url }),
-    onSuccess: (data: any) => { setActiveSourceId(data.sourceId || data.id); localStorage.removeItem(draftKey); },
+    onSuccess: (data: any) => {
+      setActiveSourceId(data.sourceId || data.id);
+      localStorage.removeItem(draftKey);
+      scrollToProgress();
+      toast.success('Đã gửi yêu cầu', { description: 'Đang fetch transcript YouTube...' });
+    },
+    onError: (e: any) => toast.error('Gửi YouTube thất bại', { description: errMsg(e) }),
   });
 
   const manualMutation = useMutation({
@@ -60,7 +84,13 @@ export default function CreatePage({ params }: { params: Promise<{ id: string }>
       script: form.script,
       disclaimerAccepted: form.disclaimerAccepted || form.tab === 'story' || form.tab === 'manual',
     }),
-    onSuccess: (data: any) => { setActiveSourceId(data.id); localStorage.removeItem(draftKey); },
+    onSuccess: (data: any) => {
+      setActiveSourceId(data.id);
+      localStorage.removeItem(draftKey);
+      scrollToProgress();
+      toast.success('Đã gửi yêu cầu', { description: 'Pipeline AI đang chạy...' });
+    },
+    onError: (e: any) => toast.error('Gửi script thất bại', { description: errMsg(e) }),
   });
 
   const submit = () => {
@@ -80,10 +110,6 @@ export default function CreatePage({ params }: { params: Promise<{ id: string }>
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-xl font-semibold">Tạo video mới</h1>
       </div>
-
-      {activeSourceId && (
-        <PipelineProgress projectId={projectId} sourceId={activeSourceId} onClose={() => setActiveSourceId(null)} />
-      )}
 
       {/* Source input tabs */}
       <div className="card p-5 mb-4">
@@ -165,6 +191,25 @@ export default function CreatePage({ params }: { params: Promise<{ id: string }>
         onChange={patch => setVoiceConfig((v: any) => ({ ...v, ...patch }))} />
       <CharacterRefSheet projectId={projectId} />
 
+      {/* Submit error display — must be visible BEFORE the button row */}
+      {(ytMutation.error || manualMutation.error) && (
+        <div className="mt-4 flex items-start gap-2 text-sm text-rose-300 bg-rose-500/10 border border-rose-500/30 rounded-lg p-3">
+          <AlertTriangle size={16} className="shrink-0 mt-0.5 text-rose-400" />
+          <div>
+            <div className="font-medium">Không gửi được yêu cầu</div>
+            <div className="text-xs text-rose-400/80 mt-1 break-all">
+              {(() => {
+                const e: any = ytMutation.error || manualMutation.error;
+                return e?.response?.data?.message || e?.message || 'Lỗi không xác định';
+              })()}
+            </div>
+            <div className="text-xs text-zinc-500 mt-2">
+              💡 Kiểm tra: project có chọn model AI ở panel "Cấu hình AI" chưa? Có ít nhất 1 API key active chưa?
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="flex gap-3 justify-end mt-4">
         <button onClick={saveDraft}
           className="flex items-center gap-2 text-sm text-zinc-400 px-4 py-2 border border-zinc-700 rounded-lg hover:text-white">
@@ -175,6 +220,13 @@ export default function CreatePage({ params }: { params: Promise<{ id: string }>
           {ytMutation.isPending || manualMutation.isPending ? '⏳ Đang gửi...' : '▶ Sinh kịch bản & Tạo video'}
         </button>
       </div>
+
+      {/* Pipeline progress — appears RIGHT BELOW the button when submit succeeds */}
+      {activeSourceId && (
+        <div ref={progressRef} className="mt-6">
+          <PipelineProgress projectId={projectId} sourceId={activeSourceId} onClose={() => setActiveSourceId(null)} />
+        </div>
+      )}
     </div>
   );
 }

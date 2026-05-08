@@ -5,6 +5,7 @@ import { getVideo, api } from '@/lib/api';
 import { CheckCircle2, Loader2, AlertCircle, ExternalLink } from 'lucide-react';
 import Link from 'next/link';
 import { cn } from '@/lib/utils';
+import { toast } from 'sonner';
 
 const STAGES = [
   { key: 'queued',     label: 'Đang gửi yêu cầu' },
@@ -18,6 +19,7 @@ type Props = { projectId: string; sourceId: string; onClose: () => void };
 
 export function PipelineProgress({ projectId, sourceId, onClose }: Props) {
   const [elapsed, setElapsed] = useState(0);
+  const [notifiedTerminal, setNotifiedTerminal] = useState(false);
 
   useEffect(() => {
     const t = setInterval(() => setElapsed(e => e + 1), 1000);
@@ -49,6 +51,16 @@ export function PipelineProgress({ projectId, sourceId, onClose }: Props) {
   const currentIdx = STAGES.findIndex(s => s.key === currentStage);
   const isFailed = currentStage === 'failed' || source?.status === 'failed';
   const isDone = currentStage === 'rendered';
+
+  // On terminal state: clean up localStorage so it doesn't auto-resume next visit
+  useEffect(() => {
+    if ((isDone || isFailed) && !notifiedTerminal) {
+      setNotifiedTerminal(true);
+      try { localStorage.removeItem(`vca:active-source:${projectId}`); } catch {}
+      if (isDone) toast.success('Video đã hoàn thành', { description: 'Bấm "Xem video" để xem.' });
+      else if (isFailed) toast.error('Pipeline thất bại', { description: source?.errorMsg?.slice(0, 100) || 'Xem chi tiết bên dưới.' });
+    }
+  }, [isDone, isFailed, notifiedTerminal, projectId, source?.errorMsg]);
 
   return (
     <div className="card p-5 mb-4 border-violet-500/30">
@@ -110,10 +122,26 @@ export function PipelineProgress({ projectId, sourceId, onClose }: Props) {
       )}
 
       {/* Hint while running */}
-      {!isDone && !isFailed && elapsed > 30 && (
+      {!isDone && !isFailed && elapsed > 30 && elapsed <= 120 && (
         <p className="mt-3 text-xs text-zinc-500">
           💡 Dựng video có thể mất 1-3 phút. Bạn có thể đóng panel này, pipeline vẫn chạy ở background.
         </p>
+      )}
+
+      {/* Stuck warning at 2+ min */}
+      {!isDone && !isFailed && elapsed > 120 && (
+        <div className="mt-3 text-xs text-amber-300 bg-amber-500/10 border border-amber-500/30 rounded p-2.5 space-y-1">
+          <div className="font-medium flex items-center gap-1.5">
+            <AlertCircle size={12} /> Pipeline có vẻ chậm bất thường ({elapsed}s)
+          </div>
+          <div className="text-zinc-400">Nguyên nhân thường gặp:</div>
+          <ul className="text-zinc-400 list-disc list-inside space-y-0.5">
+            <li>API quota hết (Gemini/OpenAI/Veo) — kiểm tra <a href="/api-sources" className="text-violet-400 hover:underline">Nguồn API</a></li>
+            <li>Veo3 video gen mất 5-15 phút (bình thường nếu chọn Cao cấp)</li>
+            <li>n8n workflow lỗi — xem <a href="/jobs" className="text-violet-400 hover:underline">Logs</a></li>
+          </ul>
+          <div className="pt-1 text-zinc-500">Hệ thống tự đánh dấu thất bại sau 3 phút nếu không có tiến triển.</div>
+        </div>
       )}
     </div>
   );

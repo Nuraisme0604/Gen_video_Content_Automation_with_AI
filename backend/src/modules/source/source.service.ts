@@ -56,8 +56,12 @@ export class SourceService {
       },
     });
 
-    // Trigger n8n workflow 02 — non-blocking, returns source regardless
+    // Trigger n8n workflow 02 — fire-and-forget. Workflow may run synchronously (Respond Last Node)
+    // and take 10-30s, so use a generous timeout. Optimistically set status to 'sent_to_n8n' since
+    // BE call is async and we don't want to block the user response.
     const n8nBase = this.config.get('N8N_BASE_URL', 'http://n8n:5678');
+    await this.prisma.apiSource.update({ where: { id: source.id }, data: { status: 'sent_to_n8n' } });
+
     firstValueFrom(
       this.http.post(`${n8nBase}/webhook/generate-scenes`, {
         sourceId: source.id,
@@ -67,17 +71,43 @@ export class SourceService {
         narration_script: dto.script,
         thumbnail_text: dto.title,
         disclaimer_accepted: dto.disclaimerAccepted,
-      }, { timeout: 5000 }),
-    ).then(() =>
-      this.prisma.apiSource.update({ where: { id: source.id }, data: { status: 'sent_to_n8n' } })
-    ).catch(() =>
-      this.prisma.apiSource.update({ where: { id: source.id }, data: { status: 'queued', errorMsg: 'n8n not reachable — queued for retry' } })
-    );
+      }, { timeout: 60000 }),
+    ).catch((err) => {
+      const status = err?.response?.status;
+      const msg = status
+        ? `n8n trả lỗi HTTP ${status} — kiểm tra workflow "Scene Generation" còn active không`
+        : `Không gọi được n8n: ${err?.message || 'unknown'}`;
+      this.prisma.apiSource.update({
+        where: { id: source.id },
+        data: { status: 'failed', errorMsg: msg },
+      }).catch(() => {});
+    });
 
-    return source;
+    return { ...source, status: 'sent_to_n8n' };
   }
 
-  listByProject(projectId: string) {
+  /**
+   * Auto-mark sources stuck in early pipeline stages as failed so the UI doesn't
+   * show them as "running forever". n8n doesn't always callback on workflow errors
+   * (e.g. when Gemini quota is exhausted), leaving sources orphaned.
+   */
+  private async markStaleAsFailed(): Promise<void> {
+    const staleThresholdSec = 900; // 15 minutes — covers Veo3 paid (~10 min) + assembly time
+    const cutoff = new Date(Date.now() - staleThresholdSec * 1000);
+    await this.prisma.apiSource.updateMany({
+      where: {
+        status: { in: ['sent_to_n8n', 'queued', 'fetching'] },
+        updatedAt: { lt: cutoff },
+      },
+      data: {
+        status: 'failed',
+        errorMsg: `Pipeline timeout sau 15 phút — worker không báo hoàn thành. Thường do API quota hết hoặc worker lỗi. Xem /jobs để chi tiết.`,
+      },
+    }).catch(() => {});
+  }
+
+  async listByProject(projectId: string) {
+    await this.markStaleAsFailed();
     return this.prisma.apiSource.findMany({
       where: { projectId },
       orderBy: { createdAt: 'desc' },

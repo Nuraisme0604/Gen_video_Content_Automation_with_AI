@@ -19,6 +19,8 @@ export const getVideos = (projectId?: string) =>
   api.get('/videos', { params: { projectId } }).then(r => r.data);
 export const getVideo = (id: string) => api.get(`/videos/${id}`).then(r => r.data);
 export const getVideoPreviewUrl = (id: string) => api.get(`/videos/${id}/preview-url`).then(r => r.data);
+export const updateVideo = (id: string, data: { title?: string; status?: string }) =>
+  api.patch(`/videos/${id}`, data).then(r => r.data);
 export const deleteVideo = (id: string) => api.delete(`/videos/${id}`).then(r => r.data);
 
 // ---- Scenes ----
@@ -74,6 +76,8 @@ export const createApiKey = (data: {
 export const toggleApiKey = (id: string) => api.patch(`/api-keys/${id}/toggle`).then(r => r.data);
 export const deleteApiKey = (id: string) => api.delete(`/api-keys/${id}`).then(r => r.data);
 export const resetApiKeyQuota = (id: string) => api.patch(`/api-keys/${id}/reset-quota`).then(r => r.data);
+export const testApiKey = (data: { key: string; provider: string }) =>
+  api.post('/api-keys/test', data).then(r => r.data);
 
 // ---- Notifications ----
 export const getNotifications = (projectId?: string) =>

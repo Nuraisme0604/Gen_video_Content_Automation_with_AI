@@ -85,4 +85,84 @@ export class ApiKeyService {
   async resetQuota(id: string) {
     return this.prisma.apiKey.update({ where: { id }, data: { quotaUsed: 0 } });
   }
+
+  /**
+   * Pick the active key with lowest quotaUsed for a given capability.
+   * Used by internal services (n8n, worker) to get a working key for outbound API calls.
+   * Returns the DECRYPTED key — only call from trusted internal code paths.
+   */
+  async pickActive(capability: string, provider?: string): Promise<{ id: string; provider: string; key: string } | null> {
+    const where: any = { type: capability, isActive: true };
+    if (provider) where.provider = provider;
+    const key = await this.prisma.apiKey.findFirst({
+      where,
+      orderBy: [{ quotaUsed: 'asc' }, { createdAt: 'asc' }],
+    });
+    if (!key) return null;
+    // Bump usage counter (best-effort, non-blocking)
+    this.prisma.apiKey.update({
+      where: { id: key.id },
+      data: { quotaUsed: { increment: 1 } },
+    }).catch(() => {});
+    return {
+      id: key.id,
+      provider: key.provider,
+      key: this.decrypt(key.keyEncrypted),
+    };
+  }
+
+  /** Test if an API key is valid by hitting the provider's lightest endpoint. */
+  async testKey(key: string, provider: string): Promise<{ ok: boolean; latencyMs?: number; error?: string; detail?: string }> {
+    const t0 = Date.now();
+    try {
+      let url = '', headers: Record<string, string> = {};
+      switch (provider.toLowerCase()) {
+        case 'google':
+          url = `https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(key)}`;
+          break;
+        case 'openai':
+          url = 'https://api.openai.com/v1/models';
+          headers = { Authorization: `Bearer ${key}` };
+          break;
+        case 'anthropic':
+          url = 'https://api.anthropic.com/v1/models';
+          headers = { 'x-api-key': key, 'anthropic-version': '2023-06-01' };
+          break;
+        case 'elevenlabs':
+          url = 'https://api.elevenlabs.io/v1/user';
+          headers = { 'xi-api-key': key };
+          break;
+        case 'runway':
+          url = 'https://api.dev.runwayml.com/v1/organization';
+          headers = { Authorization: `Bearer ${key}`, 'X-Runway-Version': '2024-11-06' };
+          break;
+        case 'replicate':
+          url = 'https://api.replicate.com/v1/account';
+          headers = { Authorization: `Token ${key}` };
+          break;
+        case 'pexels':
+          url = 'https://api.pexels.com/v1/curated?per_page=1';
+          headers = { Authorization: key };
+          break;
+        default:
+          return { ok: false, error: `Provider "${provider}" chưa hỗ trợ test connection` };
+      }
+
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), 8000);
+      const res = await fetch(url, { method: 'GET', headers, signal: ctrl.signal });
+      clearTimeout(timer);
+      const latencyMs = Date.now() - t0;
+
+      if (res.ok) return { ok: true, latencyMs };
+
+      const body = await res.text().catch(() => '');
+      const trimmed = body.slice(0, 200);
+      if (res.status === 401 || res.status === 403) return { ok: false, error: 'Key không hợp lệ hoặc bị từ chối', detail: trimmed };
+      if (res.status === 429) return { ok: false, error: 'Quota tạm thời hết — key vẫn hợp lệ', detail: trimmed };
+      return { ok: false, error: `HTTP ${res.status}`, detail: trimmed };
+    } catch (e: any) {
+      return { ok: false, error: e?.name === 'AbortError' ? 'Timeout (>8s)' : e?.message || 'Lỗi kết nối' };
+    }
+  }
 }

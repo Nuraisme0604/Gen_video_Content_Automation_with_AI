@@ -4,6 +4,7 @@ import { Providers } from './providers';
 import { Sidebar } from '@/components/layout/Sidebar';
 import { TopBar } from '@/components/layout/TopBar';
 import { StatusBar } from '@/components/layout/StatusBar';
+import { Toaster } from 'sonner';
 
 export const metadata: Metadata = {
   title: 'AI Video Tool',
@@ -21,6 +22,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             <main className="flex-1 overflow-y-auto p-6">{children}</main>
           </div>
           <StatusBar />
+          <Toaster theme="dark" position="top-right" richColors closeButton />
         </Providers>
       </body>
     </html>

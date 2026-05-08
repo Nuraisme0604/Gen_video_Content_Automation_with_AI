@@ -85,6 +85,25 @@ export class WorkerWebhookController {
       },
     });
 
+    // Also update the ApiSource that triggered this render — when pipeline starts from
+    // /sources/manual or /sources/youtube, the worker uses sourceId as videoId so they
+    // share the same id. Match either by id or by videoId field.
+    await this.prisma.apiSource.updateMany({
+      where: {
+        OR: [
+          { id: body.videoId },
+          { videoId: body.videoId },
+        ],
+      },
+      data: {
+        status: body.success ? 'rendered' : 'failed',
+        videoId: body.videoId,
+        errorMsg: body.error,
+      },
+    }).catch((err) => {
+      this.logger.warn(`Failed to update ApiSource for video ${body.videoId}: ${err.message}`);
+    });
+
     if (body.bullJobId) {
       await this.jobService.updateStatus(body.bullJobId, {
         status: body.success ? 'completed' : 'failed',
@@ -110,18 +129,21 @@ export class WorkerWebhookController {
       this.gateway.emitJobFailed(body.videoId, { error: body.error || 'Unknown error' });
     }
 
-    // Call back to n8n render-complete webhook to preserve existing n8n post-render flow (YouTube upload etc.)
-    const n8nBase = this.config.get('N8N_BASE_URL', 'http://n8n:5678');
-    try {
-      await firstValueFrom(
-        this.http.post(`${n8nBase}/webhook/render-complete`, {
-          video_id: body.videoId,
-          success: body.success,
-          master_video_key: body.masterVideoKey,
-        }),
-      );
-    } catch (e) {
-      this.logger.warn(`n8n render-complete callback failed: ${(e as any).message}`);
+    // Optional: callback to n8n render-complete (for YouTube auto-upload workflow).
+    // Only fire if explicitly enabled — otherwise we spam 404 logs when the workflow isn't imported.
+    if (this.config.get('ENABLE_N8N_RENDER_CALLBACK') === 'true') {
+      const n8nBase = this.config.get('N8N_BASE_URL', 'http://n8n:5678');
+      try {
+        await firstValueFrom(
+          this.http.post(`${n8nBase}/webhook/render-complete`, {
+            video_id: body.videoId,
+            success: body.success,
+            master_video_key: body.masterVideoKey,
+          }),
+        );
+      } catch (e) {
+        this.logger.warn(`n8n render-complete callback failed: ${(e as any).message}`);
+      }
     }
 
     return { ok: true };
