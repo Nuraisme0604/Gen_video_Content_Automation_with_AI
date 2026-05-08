@@ -97,33 +97,20 @@ services:
       - WEBHOOK_URL=${N8N_WEBHOOK_URL:-http://localhost:5678/}
       - GENERIC_TIMEZONE=Asia/Ho_Chi_Minh
       - N8N_BLOCK_ENV_ACCESS_IN_NODE=false
-      # AI provider keys exposed as $env.VAR for workflow expressions
-      - OPENAI_API_KEY=${OPENAI_API_KEY}
-      - OPENAI_TEXT_MODEL=${OPENAI_TEXT_MODEL:-gpt-5.4-mini}
-      - OPENAI_IMAGE_MODEL=${OPENAI_IMAGE_MODEL:-gpt-image-2}
-      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
-      - CLAUDE_MODEL=${CLAUDE_MODEL:-claude-opus-4-7}
-      - ELEVENLABS_API_KEY=${ELEVENLABS_API_KEY}
-      - ELEVENLABS_VOICE_ID=${ELEVENLABS_VOICE_ID}
-      - ELEVENLABS_MODEL=${ELEVENLABS_MODEL:-eleven_multilingual_v2}
-      - VIDEO_PROVIDER=${VIDEO_PROVIDER:-veo3}
-      - VIDEO_API_KEY=${VIDEO_API_KEY}
-      - VIDEO_API_URL=${VIDEO_API_URL}
-      - VIDEO_MODEL=${VIDEO_MODEL:-gen4_turbo}
+      # ── n8n no longer reads API keys from env. Workflow nodes call BE
+      #    /api-keys/internal/active to get keys from DB. INTERNAL_API_SECRET
+      #    must match BE's value — workflow uses it as X-Internal-Secret header.
+      - INTERNAL_API_SECRET=${INTERNAL_API_SECRET:-dev-internal-secret}
+      # Pipeline / channel defaults (non-secret config)
+      - VIDEO_PROVIDER=${VIDEO_PROVIDER:-slideshow}
       - SCENE_VIDEO_SECONDS=${SCENE_VIDEO_SECONDS:-8}
-      - CHANNEL_NAME=${CHANNEL_NAME:-My YouTube Channel}
+      - CHANNEL_NAME=${CHANNEL_NAME:-My Channel}
       - CHANNEL_NICHE=${CHANNEL_NICHE:-general}
       - CHANNEL_URL=${CHANNEL_URL:-}
-      - CHANNEL_LANGUAGE=${CHANNEL_LANGUAGE:-English}
+      - CHANNEL_LANGUAGE=${CHANNEL_LANGUAGE:-vi}
       - CHANNEL_VISUAL_STYLE=${CHANNEL_VISUAL_STYLE:-cinematic, 16:9}
-      - TARGET_DURATION_MINUTES=${TARGET_DURATION_MINUTES:-15}
-      - YOUTUBE_DATA_API_KEY=${YOUTUBE_DATA_API_KEY:-}
+      - TARGET_DURATION_MINUTES=${TARGET_DURATION_MINUTES:-10}
       - PIPELINE_MODE=${PIPELINE_MODE:-draft}
-      - MIN_QA_SCORE=${MIN_QA_SCORE:-75}
-      - YOUTUBE_PRIVACY_STATUS=${YOUTUBE_PRIVACY_STATUS:-private}
-      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
-      - TELEGRAM_CHAT_ID=${TELEGRAM_CHAT_ID}
-      # Phase 3: NestJS callback URL (replaces direct python_worker URL)
       - BACKEND_URL=${BACKEND_URL:-http://backend:3001}
     ports:
       - "5678:5678"
@@ -156,41 +143,33 @@ services:
       - ASSETS_DIR=/assets_temp
       - MAX_PARALLEL_SCENES=${MAX_PARALLEL_SCENES:-5}
       - PIPELINE_MODE=${PIPELINE_MODE:-draft}
-      - OPENAI_API_KEY=${OPENAI_API_KEY}
-      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
-      - ELEVENLABS_API_KEY=${ELEVENLABS_API_KEY}
-      - ELEVENLABS_VOICE_ID=${ELEVENLABS_VOICE_ID}
-      - ELEVENLABS_MODEL=${ELEVENLABS_MODEL:-eleven_multilingual_v2}
-      - VIDEO_PROVIDER=${VIDEO_PROVIDER:-veo3}
-      - VIDEO_API_KEY=${VIDEO_API_KEY}
-      - VIDEO_API_URL=${VIDEO_API_URL}
-      - VIDEO_MODEL=${VIDEO_MODEL:-gen4_turbo}
+      # ── Worker reads API keys from BE/DB at runtime via INTERNAL_API_SECRET ──
+      # No longer hard-coded here. Add keys via UI: http://localhost:3000/api-sources
+      - INTERNAL_API_SECRET=${INTERNAL_API_SECRET:-dev-internal-secret}
+      # Pipeline tuning (non-secret)
+      - VIDEO_PROVIDER=${VIDEO_PROVIDER:-slideshow}
+      - VIDEO_MODEL=${VIDEO_MODEL:-}
       - SCENE_VIDEO_SECONDS=${SCENE_VIDEO_SECONDS:-8}
-      - GOOGLE_API_KEY=${GOOGLE_API_KEY}
-      - VEO3_MODEL=${VEO3_MODEL:-veo-3.1-generate-preview}
       - VEO3_POLL_TIMEOUT=${VEO3_POLL_TIMEOUT:-300}
       - USE_IMAGE_TO_VIDEO=${USE_IMAGE_TO_VIDEO:-true}
-      - MUSIC_PROVIDER=${MUSIC_PROVIDER:-elevenlabs}
-      - ELEVENLABS_MUSIC_MODEL=${ELEVENLABS_MUSIC_MODEL:-music_v1}
+      # Voice (Edge TTS — free, no key)
+      - VOICE_NAME=${VOICE_NAME:-vi-VN-NamMinhNeural}
+      # BGM (free fallback to static if no ElevenLabs/Suno key in DB)
+      - MUSIC_PROVIDER=${MUSIC_PROVIDER:-static}
       - BGM_DURATION_MS=${BGM_DURATION_MS:-0}
-      - SUNO_API_KEY=${SUNO_API_KEY}
-      - SUNO_MODEL=${SUNO_MODEL:-chirp-v3-5}
-      - SUNO_API_BASE=${SUNO_API_BASE:-https://studio-api.suno.ai}
       - BGM_PROMPT=${BGM_PROMPT:-calm ambient background music}
       - BGM_FALLBACK_URL=${BGM_FALLBACK_URL:-https://github.com/rafaelreis-hotmart/Audio-Sample-files/raw/master/sample.mp3}
+      # Audio mix
       - VEO_AUDIO_VOLUME=${VEO_AUDIO_VOLUME:-0.3}
       - VOICE_VOLUME=${VOICE_VOLUME:-1.0}
       - BGM_VOLUME=${BGM_VOLUME:-0.15}
       - BGM_CROSSFADE_SEC=${BGM_CROSSFADE_SEC:-2.0}
+      # Subtitles
       - BURN_SUBTITLES=${BURN_SUBTITLES:-false}
       - SUBTITLE_STYLE=${SUBTITLE_STYLE:-}
-      - YOUTUBE_CLIENT_ID=${YOUTUBE_CLIENT_ID}
-      - YOUTUBE_CLIENT_SECRET=${YOUTUBE_CLIENT_SECRET}
-      - YOUTUBE_REFRESH_TOKEN=${YOUTUBE_REFRESH_TOKEN}
+      # YouTube upload — disabled by default; user enables by adding creds via UI later
       - YOUTUBE_PRIVACY_STATUS=${YOUTUBE_PRIVACY_STATUS:-private}
       - YOUTUBE_CATEGORY_ID=${YOUTUBE_CATEGORY_ID:-22}
-      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
-      - TELEGRAM_CHAT_ID=${TELEGRAM_CHAT_ID}
       - MIN_QA_SCORE=${MIN_QA_SCORE:-75}
       - BUDGET_LIMIT_PER_VIDEO=${BUDGET_LIMIT_PER_VIDEO:-100}
       - N8N_WEBHOOK_URL=${N8N_WEBHOOK_URL:-http://n8n:5678}
@@ -224,10 +203,12 @@ services:
       - PYTHON_WORKER_URL=http://python_worker:8000
       - WEBHOOK_HMAC_SECRET=${WEBHOOK_HMAC_SECRET:-change-me-in-prod}
       - ENCRYPTION_SECRET=${ENCRYPTION_SECRET:-change-me-32-chars-exactly-here!!}
-      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
-      - TELEGRAM_CHAT_ID=${TELEGRAM_CHAT_ID}
-      - BASIC_AUTH_USER=${BASIC_AUTH_USER:-admin}
-      - BASIC_AUTH_PASS=${BASIC_AUTH_PASS:-admin}
+      - INTERNAL_API_SECRET=${INTERNAL_API_SECRET:-dev-internal-secret}
+      - ENABLE_N8N_RENDER_CALLBACK=${ENABLE_N8N_RENDER_CALLBACK:-false}
+      # Telegram credentials are added via UI /notifications/settings → DB
+      # (legacy: still falls back to env if user wants headless setup)
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN:-}
+      - TELEGRAM_CHAT_ID=${TELEGRAM_CHAT_ID:-}
     depends_on:
       postgres:
         condition: service_healthy

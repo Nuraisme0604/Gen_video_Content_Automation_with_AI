@@ -75,22 +75,48 @@ graph TB
 
 ## 4. Cài đặt
 
-### 4.1 Quick start
+### 4.1 Quick start (máy mới — không cần API key trong .env)
+
 ```bash
 git clone <repo-url>
-cd video-content-engine
-cp .env.example .env
-nano .env                          # Điền API keys
-docker compose up -d --build
+cd Gen_video_Content_Automation_with_AI
+cp .env.example .env                 # CHỈ chứa cấu hình hạ tầng (DB pass, ports)
+docker compose up -d --build         # 7 container: postgres, redis, minio, n8n, backend, frontend, worker
 ```
 
-### 4.2 Setup n8n
-1. Mở `http://localhost:5678` → tạo admin
-2. Credentials → New → Postgres (Name: `Postgres`, Host: `postgres`, DB/user/pass theo `.env`)
-3. Workflows → Import từ `n8n_workflows/` (3 file: 01, 02, 03)
-4. Activate từng workflow
+Stack chạy lên xong, mở 3 URL:
 
-**Hướng dẫn deploy chi tiết: [`video-content-engine/deploy.md`](./video-content-engine/deploy.md)**
+| URL | Mục đích |
+|---|---|
+| http://localhost:3000 | **Web UI** — toàn bộ thao tác user |
+| http://localhost:5678 | n8n admin (chỉ cần khi import workflow lần đầu) |
+| http://localhost:9001 | MinIO console (xem file sinh ra) |
+
+### 4.2 Cấu hình lần đầu (qua UI, không sửa file)
+
+1. **Mở http://localhost:3000** → Tạo project mới (tên bất kỳ)
+2. **Mở http://localhost:3000/api-sources → "+ Thêm key"**:
+   - Paste API key của bạn (Gemini `AIzaSy...`, OpenAI `sk-...`, ElevenLabs `xi-...`, ...)
+   - System auto-detect provider + capability
+   - Bấm "Test kết nối" → xác nhận key hợp lệ → Lưu
+   - Key được mã hoá AES-256-GCM trong DB, **không** lưu vào file
+3. **n8n setup** (chỉ lần đầu):
+   - Mở http://localhost:5678 → tạo admin local
+   - Workflows → Import → chọn file `video-content-engine/n8n_workflows/02_scene_generation.json`
+   - Activate workflow
+
+**Xong**. Pipeline lấy key từ DB qua BE internal endpoint, không phụ thuộc `.env`.
+
+### 4.3 Tại sao API key không trong `.env`?
+
+| Vấn đề `.env` | Cách giải quyết |
+|---|---|
+| Lộ key khi push Git | `.gitignore` exclude `.env`, nhưng key gốc trong DB |
+| Phải copy `.env` qua máy mới | Máy mới chỉ cần `cp .env.example .env` (không có key) → add key qua UI |
+| Không xoay vòng được | UI cho phép thêm nhiều key cùng provider, BE pick key có quotaUsed thấp nhất |
+| Plaintext file trên disk | Key trong DB mã hoá, decrypt chỉ khi gọi internal endpoint với HMAC |
+
+**Khi clone repo trên máy khác**: `cp .env.example .env && docker compose up`. Vào UI add key. Done. Không có bước "kéo file `.env` theo".
 
 ---
 

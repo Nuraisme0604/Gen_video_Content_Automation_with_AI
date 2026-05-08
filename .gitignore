@@ -1,0 +1,61 @@
+# Secrets & credentials — NEVER commit
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+credentials.json
+service-account*.json
+**/secrets/
+
+# Node / Frontend
+node_modules/
+.next/
+dist/
+build/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnp.*
+.yarn/
+
+# Python / Worker
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+ENV/
+.venv/
+
+# Database / data dirs (should be in Docker volumes)
+postgres_data/
+redis_data/
+minio_data/
+n8n_data/
+assets_temp/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+
+# Build artifacts
+*.tsbuildinfo
+next-env.d.ts
+.turbo/
+
+# Test coverage
+coverage/
+.nyc_output/
+
+# Generated types from openapi-typescript
+frontend/src/lib/api-types.ts
+
+# Local docker overrides
+docker-compose.override.yml
