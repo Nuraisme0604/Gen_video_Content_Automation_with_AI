@@ -1,0 +1,60 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --bg: #09090b;
+  --sidebar: #111113;
+  --card: #18181b;
+  --border: #27272a;
+}
+
+.light {
+  --bg: #f4f4f5;
+  --sidebar: #ffffff;
+  --card: #ffffff;
+  --border: #e4e4e7;
+}
+
+body {
+  background: var(--bg);
+  color: #fafafa;
+  font-family: Inter, sans-serif;
+}
+
+/* Light mode: force all text to readable dark colors */
+html.light body                        { color: #09090b; }
+html.light .text-white                 { color: #09090b !important; }
+html.light .text-zinc-100              { color: #18181b !important; }
+html.light .text-zinc-200              { color: #27272a !important; }
+html.light .text-zinc-300              { color: #3f3f46 !important; }
+html.light .text-zinc-400              { color: #52525b !important; }
+html.light .text-zinc-500              { color: #71717a !important; }
+html.light .text-zinc-600              { color: #52525b !important; }
+/* Light mode: dark backgrounds become light */
+html.light .bg-zinc-800                { background-color: #f0f0f0 !important; }
+html.light .bg-zinc-800\/50            { background-color: #f4f4f580 !important; }
+html.light .bg-zinc-900\/50            { background-color: #f0f0f080 !important; }
+html.light .bg-zinc-700                { background-color: #e4e4e7 !important; }
+/* Light mode: borders */
+html.light .border-zinc-700            { border-color: #d4d4d8 !important; }
+html.light .border-zinc-600            { border-color: #d4d4d8 !important; }
+html.light .border-\[--border\]        { border-color: var(--border) !important; }
+html.light .divide-\[--border\] > *   { border-color: var(--border) !important; }
+/* Light mode: hover states */
+html.light .hover\:bg-zinc-800:hover   { background-color: #e4e4e7 !important; }
+html.light .hover\:bg-white\/5:hover   { background-color: #00000008 !important; }
+/* Light mode: select/input elements */
+html.light select                      { color: #09090b; background-color: #f0f0f0; }
+html.light input                       { color: #09090b; }
+html.light textarea                    { color: #09090b; }
+
+.sidebar { background: var(--sidebar); border-right: 1px solid var(--border); }
+.card { background: var(--card); border: 1px solid var(--border); border-radius: 0.75rem; }
+
+/* Status pills */
+.pill-done    { @apply bg-emerald-500/10 text-emerald-400 text-xs px-2 py-0.5 rounded-full font-medium; }
+.pill-error   { @apply bg-rose-500/10 text-rose-400 text-xs px-2 py-0.5 rounded-full font-medium; }
+.pill-running { @apply bg-violet-500/10 text-violet-400 text-xs px-2 py-0.5 rounded-full font-medium; }
+.pill-queued  { @apply bg-amber-500/10 text-amber-400 text-xs px-2 py-0.5 rounded-full font-medium; }
+.pill-draft   { @apply bg-zinc-500/10 text-zinc-400 text-xs px-2 py-0.5 rounded-full font-medium; }

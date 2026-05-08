@@ -1,0 +1,262 @@
+# Top-level orchestration: postgres + redis + minio + n8n + python_worker + backend + frontend.
+# Phase 1 (infra-only): postgres, redis, minio, n8n, python_worker are runnable.
+# backend/frontend are placeholder containers — replace `image:` with `build: ./backend` / `./frontend`
+# once those folders are scaffolded.
+#
+# Usage:
+#   cp .env.example .env       # edit values
+#   docker compose up -d       # bring up everything
+#   docker compose ps          # verify health
+#
+# NOTE on Postgres 15 → 16: existing video-content-engine/init.sql works on 16. If you have
+# existing data in the postgres_data volume from the v15 compose, dump it first:
+#   docker run --rm -v video-content-engine_postgres_data:/var/lib/postgresql/data \
+#     postgres:15-alpine pg_dumpall -U user > backup.sql
+# then start v16 here and `psql < backup.sql` after volume init.
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: vca_postgres
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-pass}
+      POSTGRES_DB: ${POSTGRES_DB:-content_engine}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./video-content-engine/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-user} -d ${POSTGRES_DB:-content_engine}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    container_name: vca_redis
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis_data:/data
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+  minio:
+    image: minio/minio:latest
+    container_name: vca_minio
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
+    volumes:
+      - minio_data:/data
+    ports:
+      - "9000:9000"   # S3 API
+      - "9001:9001"   # Web console
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  # One-shot bucket initialiser. Creates `assets` (private) and `public-thumbnails` (public-read).
+  minio_init:
+    image: minio/mc:latest
+    container_name: vca_minio_init
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: >
+      /bin/sh -c "
+      mc alias set local http://minio:9000 ${MINIO_ROOT_USER:-minioadmin} ${MINIO_ROOT_PASSWORD:-minioadmin} &&
+      mc mb -p local/assets || true &&
+      mc mb -p local/public-thumbnails || true &&
+      mc anonymous set download local/public-thumbnails || true &&
+      echo 'MinIO buckets ready.'
+      "
+    restart: "no"
+
+  n8n:
+    image: n8nio/n8n:latest
+    container_name: vca_n8n
+    environment:
+      - DB_TYPE=sqlite
+      - N8N_HOST=0.0.0.0
+      - N8N_PORT=5678
+      - N8N_PROTOCOL=http
+      - NODE_ENV=production
+      - WEBHOOK_URL=${N8N_WEBHOOK_URL:-http://localhost:5678/}
+      - GENERIC_TIMEZONE=Asia/Ho_Chi_Minh
+      # AI provider keys exposed as $env.VAR for workflow expressions
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - OPENAI_TEXT_MODEL=${OPENAI_TEXT_MODEL:-gpt-5.4-mini}
+      - OPENAI_IMAGE_MODEL=${OPENAI_IMAGE_MODEL:-gpt-image-2}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - CLAUDE_MODEL=${CLAUDE_MODEL:-claude-opus-4-7}
+      - ELEVENLABS_API_KEY=${ELEVENLABS_API_KEY}
+      - ELEVENLABS_VOICE_ID=${ELEVENLABS_VOICE_ID}
+      - ELEVENLABS_MODEL=${ELEVENLABS_MODEL:-eleven_multilingual_v2}
+      - VIDEO_PROVIDER=${VIDEO_PROVIDER:-veo3}
+      - VIDEO_API_KEY=${VIDEO_API_KEY}
+      - VIDEO_API_URL=${VIDEO_API_URL}
+      - VIDEO_MODEL=${VIDEO_MODEL:-gen4_turbo}
+      - SCENE_VIDEO_SECONDS=${SCENE_VIDEO_SECONDS:-8}
+      - CHANNEL_NAME=${CHANNEL_NAME:-My YouTube Channel}
+      - CHANNEL_NICHE=${CHANNEL_NICHE:-general}
+      - CHANNEL_URL=${CHANNEL_URL:-}
+      - CHANNEL_LANGUAGE=${CHANNEL_LANGUAGE:-English}
+      - CHANNEL_VISUAL_STYLE=${CHANNEL_VISUAL_STYLE:-cinematic, 16:9}
+      - TARGET_DURATION_MINUTES=${TARGET_DURATION_MINUTES:-15}
+      - YOUTUBE_DATA_API_KEY=${YOUTUBE_DATA_API_KEY:-}
+      - PIPELINE_MODE=${PIPELINE_MODE:-draft}
+      - MIN_QA_SCORE=${MIN_QA_SCORE:-75}
+      - YOUTUBE_PRIVACY_STATUS=${YOUTUBE_PRIVACY_STATUS:-private}
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+      - TELEGRAM_CHAT_ID=${TELEGRAM_CHAT_ID}
+      # Phase 3: NestJS callback URL (replaces direct python_worker URL)
+      - BACKEND_URL=${BACKEND_URL:-http://backend:3001}
+    ports:
+      - "5678:5678"
+    volumes:
+      - n8n_data:/home/node/.n8n
+      - ./video-content-engine/assets_temp:/assets_temp
+      - ./video-content-engine/n8n_workflows:/home/node/workflows
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+  python_worker:
+    build:
+      context: ./video-content-engine/worker
+      dockerfile: Dockerfile
+    container_name: vca_python_worker
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./video-content-engine/assets_temp:/assets_temp
+    environment:
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-user}:${POSTGRES_PASSWORD:-pass}@postgres:5432/${POSTGRES_DB:-content_engine}
+      - REDIS_URL=redis://redis:6379
+      - S3_ENDPOINT=http://minio:9000
+      - S3_ACCESS_KEY=${MINIO_ROOT_USER:-minioadmin}
+      - S3_SECRET_KEY=${MINIO_ROOT_PASSWORD:-minioadmin}
+      - S3_BUCKET_ASSETS=assets
+      - S3_BUCKET_PUBLIC=public-thumbnails
+      - ASSETS_DIR=/assets_temp
+      - MAX_PARALLEL_SCENES=${MAX_PARALLEL_SCENES:-5}
+      - PIPELINE_MODE=${PIPELINE_MODE:-draft}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - ELEVENLABS_API_KEY=${ELEVENLABS_API_KEY}
+      - ELEVENLABS_VOICE_ID=${ELEVENLABS_VOICE_ID}
+      - ELEVENLABS_MODEL=${ELEVENLABS_MODEL:-eleven_multilingual_v2}
+      - VIDEO_PROVIDER=${VIDEO_PROVIDER:-veo3}
+      - VIDEO_API_KEY=${VIDEO_API_KEY}
+      - VIDEO_API_URL=${VIDEO_API_URL}
+      - VIDEO_MODEL=${VIDEO_MODEL:-gen4_turbo}
+      - SCENE_VIDEO_SECONDS=${SCENE_VIDEO_SECONDS:-8}
+      - GOOGLE_API_KEY=${GOOGLE_API_KEY}
+      - VEO3_MODEL=${VEO3_MODEL:-veo-3.1-generate-preview}
+      - VEO3_POLL_TIMEOUT=${VEO3_POLL_TIMEOUT:-300}
+      - USE_IMAGE_TO_VIDEO=${USE_IMAGE_TO_VIDEO:-true}
+      - MUSIC_PROVIDER=${MUSIC_PROVIDER:-elevenlabs}
+      - ELEVENLABS_MUSIC_MODEL=${ELEVENLABS_MUSIC_MODEL:-music_v1}
+      - BGM_DURATION_MS=${BGM_DURATION_MS:-0}
+      - SUNO_API_KEY=${SUNO_API_KEY}
+      - SUNO_MODEL=${SUNO_MODEL:-chirp-v3-5}
+      - SUNO_API_BASE=${SUNO_API_BASE:-https://studio-api.suno.ai}
+      - BGM_PROMPT=${BGM_PROMPT:-calm ambient background music}
+      - BGM_FALLBACK_URL=${BGM_FALLBACK_URL:-https://github.com/rafaelreis-hotmart/Audio-Sample-files/raw/master/sample.mp3}
+      - VEO_AUDIO_VOLUME=${VEO_AUDIO_VOLUME:-0.3}
+      - VOICE_VOLUME=${VOICE_VOLUME:-1.0}
+      - BGM_VOLUME=${BGM_VOLUME:-0.15}
+      - BGM_CROSSFADE_SEC=${BGM_CROSSFADE_SEC:-2.0}
+      - BURN_SUBTITLES=${BURN_SUBTITLES:-false}
+      - SUBTITLE_STYLE=${SUBTITLE_STYLE:-}
+      - YOUTUBE_CLIENT_ID=${YOUTUBE_CLIENT_ID}
+      - YOUTUBE_CLIENT_SECRET=${YOUTUBE_CLIENT_SECRET}
+      - YOUTUBE_REFRESH_TOKEN=${YOUTUBE_REFRESH_TOKEN}
+      - YOUTUBE_PRIVACY_STATUS=${YOUTUBE_PRIVACY_STATUS:-private}
+      - YOUTUBE_CATEGORY_ID=${YOUTUBE_CATEGORY_ID:-22}
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+      - TELEGRAM_CHAT_ID=${TELEGRAM_CHAT_ID}
+      - MIN_QA_SCORE=${MIN_QA_SCORE:-75}
+      - BUDGET_LIMIT_PER_VIDEO=${BUDGET_LIMIT_PER_VIDEO:-100}
+      - N8N_WEBHOOK_URL=${N8N_WEBHOOK_URL:-http://n8n:5678}
+      - BACKEND_URL=${BACKEND_URL:-http://backend:3001}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    restart: unless-stopped
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    ports:
+      - "3001:3001"
+    environment:
+      - NODE_ENV=development
+      - PORT=3001
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-user}:${POSTGRES_PASSWORD:-pass}@postgres:5432/${POSTGRES_DB:-content_engine}
+      - REDIS_URL=redis://redis:6379
+      - S3_ENDPOINT=http://minio:9000
+      - S3_ACCESS_KEY=${MINIO_ROOT_USER:-minioadmin}
+      - S3_SECRET_KEY=${MINIO_ROOT_PASSWORD:-minioadmin}
+      - S3_BUCKET_ASSETS=assets
+      - S3_BUCKET_PUBLIC=public-thumbnails
+      - N8N_BASE_URL=http://n8n:5678
+      - PYTHON_WORKER_URL=http://python_worker:8000
+      - WEBHOOK_HMAC_SECRET=${WEBHOOK_HMAC_SECRET:-change-me-in-prod}
+      - ENCRYPTION_SECRET=${ENCRYPTION_SECRET:-change-me-32-chars-exactly-here!!}
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+      - TELEGRAM_CHAT_ID=${TELEGRAM_CHAT_ID}
+      - BASIC_AUTH_USER=${BASIC_AUTH_USER:-admin}
+      - BASIC_AUTH_PASS=${BASIC_AUTH_PASS:-admin}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=development
+      - PORT=3000
+      - NEXT_PUBLIC_API_URL=http://localhost:3001
+      - NEXT_PUBLIC_SOCKET_URL=http://localhost:3001
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+  redis_data:
+  minio_data:
+  n8n_data:
+
+networks:
+  default:
+    name: vca_network

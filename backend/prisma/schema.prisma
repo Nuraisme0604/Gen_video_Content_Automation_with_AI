@@ -1,0 +1,285 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// --------------- PROJECTS ---------------
+
+model Project {
+  id          String   @id @default(cuid())
+  name        String
+  slug        String   @unique
+  language    String   @default("vi")
+  niche       String   @default("general")
+  visualStyle String   @default("cinematic, 16:9")
+  description   String?
+  // Voice config (per-project default)
+  voiceProvider String   @default("elevenlabs")
+  voiceId       String?
+  voiceSpeed    Float    @default(1.0)
+  voiceEmotion  String   @default("neutral")
+  burnSubtitles Boolean  @default(false)
+  // AI model config (per-project, linked to active API keys)
+  scriptProvider  String  @default("openai")
+  scriptModel     String  @default("gpt-5.4-mini")
+  refineProvider  String  @default("anthropic")
+  refineModel     String  @default("claude-opus-4-7")
+  imageProvider   String  @default("openai")
+  imageModel      String  @default("gpt-image-2")
+  videoProvider   String  @default("google")
+  videoModel      String  @default("veo-3.1-generate-preview")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  videos     Video[]
+  frames     Frame[]
+  apiKeys    ApiKey[]
+  characters Character[]
+  apiSources ApiSource[]
+}
+
+// --------------- VIDEOS (existing table — extended) ---------------
+
+model Video {
+  id             String    @id @default(cuid())
+  projectId      String
+  title          String?
+  status         String    @default("draft")
+  /// S3 key of the assembled master video
+  masterVideoKey String?
+  thumbnailKey   String?
+  durationSec    Float?
+  youtubeVideoId String?
+  totalCostUsd   Float     @default(0)
+  errorMsg       String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  publishedAt    DateTime?
+
+  project    Project     @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  scenes     Scene[]
+  jobs       Job[]
+  apiSources ApiSource[]
+
+  @@index([projectId])
+  @@index([status])
+  @@map("videos")
+}
+
+// --------------- SCENES (existing table — extended) ---------------
+
+model Scene {
+  id              String   @id @default(cuid())
+  videoId         String
+  sceneIndex      Int
+  voiceoverText   String?
+  videoPrompt     String?
+  imagePrompt     String?
+  bgmPrompt       String?
+  /// S3 keys (not local paths)
+  audioKey        String?
+  videoKey        String?
+  imageKey        String?
+  subtitleKey     String?
+  durationSec     Float?
+  status          String   @default("pending")
+  errorMessage    String?
+  veoJobId        String?
+  costUsd         Float    @default(0)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  video     Video      @relation(fields: [videoId], references: [id], onDelete: Cascade)
+  subtitles SubtitleLine[]
+
+  @@index([videoId])
+  @@map("scenes")
+}
+
+// --------------- SUBTITLE LINES ---------------
+
+model SubtitleLine {
+  id       String  @id @default(cuid())
+  sceneId  String
+  startMs  Int
+  endMs    Int
+  text     String
+  position String  @default("bottom") // top|center|bottom
+  style    String? // JSON-serialized: fontFamily, fontSize, color, outlineColor
+
+  scene Scene @relation(fields: [sceneId], references: [id], onDelete: Cascade)
+
+  @@index([sceneId])
+}
+
+// --------------- FRAMES (module 5) ---------------
+
+model Frame {
+  id          String   @id @default(cuid())
+  projectId   String
+  name        String
+  description String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  project Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  images  FrameImage[]
+
+  @@index([projectId])
+}
+
+model FrameImage {
+  id          String   @id @default(cuid())
+  frameId     String
+  sortOrder   Int      @default(0)
+  /// S3 key
+  imageKey    String
+  prompt      String?
+  width       Int?
+  height      Int?
+  createdAt   DateTime @default(now())
+
+  frame Frame @relation(fields: [frameId], references: [id], onDelete: Cascade)
+
+  @@index([frameId])
+}
+
+// --------------- API KEYS (module 3, multi-key per provider) ---------------
+
+enum ApiKeyType {
+  SCRIPT    // OpenAI text
+  IMAGE     // gpt-image-2
+  VIDEO     // Veo3 / Runway
+  VOICE     // ElevenLabs
+  BGM       // ElevenLabs Music
+}
+
+model ApiKey {
+  id         String     @id @default(cuid())
+  projectId  String?    // null = global
+  type       ApiKeyType
+  provider   String     // openai | anthropic | elevenlabs | google | runway
+  label      String?
+  keyMasked  String     // last 4 chars only, for display
+  keyHash    String     // hashed key for dedup
+  keyEncrypted String   // encrypted with ENCRYPTION_SECRET
+  quotaLimit Int?
+  quotaUsed  Int        @default(0)
+  isActive   Boolean    @default(true)
+  createdAt  DateTime   @default(now())
+  updatedAt  DateTime   @updatedAt
+
+  project Project? @relation(fields: [projectId], references: [id], onDelete: SetNull)
+
+  @@index([projectId, type])
+  @@index([provider, isActive])
+}
+
+// --------------- CHARACTER REFS (module 1.3) ---------------
+
+model Character {
+  id          String   @id @default(cuid())
+  projectId   String
+  name        String
+  description String   // DNA prompt, e.g. "Caucasian male, 30s, dark beard..."
+  /// S3 key of reference image
+  imageKey    String?
+  sortOrder   Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId])
+}
+
+// --------------- INPUT SOURCES (YouTube / Manual) ---------------
+
+enum SourceType {
+  YOUTUBE
+  MANUAL
+}
+
+model ApiSource {
+  id          String     @id @default(cuid())
+  projectId   String
+  videoId     String?
+  type        SourceType
+  inputUrl    String?    // YouTube URL
+  rawScript   String?    // Manual script text
+  transcript  String?    // Fetched transcript (cached)
+  title       String?
+  channelName String?
+  durationSec Float?
+  status      String     @default("pending") // pending|fetching|fetched|sent_to_n8n|failed
+  errorMsg    String?
+  metadata    Json?
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  video   Video?  @relation(fields: [videoId], references: [id], onDelete: SetNull)
+
+  @@index([projectId])
+  @@index([inputUrl])
+}
+
+// --------------- JOBS (BullMQ tracking) ---------------
+
+model Job {
+  id         String    @id @default(cuid())
+  bullJobId  String?   @unique
+  queue      String    // render | transcript-fetch | notify
+  videoId    String?
+  projectId  String?
+  status     String    @default("queued") // queued|active|completed|failed
+  progress   Int       @default(0)
+  stage      String?   // current stage description
+  payload    Json
+  result     Json?
+  errorMsg   String?
+  createdAt  DateTime  @default(now())
+  finishedAt DateTime?
+
+  video Video? @relation(fields: [videoId], references: [id], onDelete: SetNull)
+
+  @@index([videoId])
+  @@index([queue, status])
+  @@index([createdAt])
+}
+
+// --------------- NOTIFICATIONS (module 4) ---------------
+
+model NotificationLog {
+  id        String   @id @default(cuid())
+  projectId String?
+  channel   String   // telegram | in-app
+  videoId   String?
+  event     String   // video_complete | scene_error | quota_exceeded | job_failed
+  message   String
+  imageUrl  String?
+  status    String   @default("sent") // sent | failed
+  errorMsg  String?
+  createdAt DateTime @default(now())
+
+  @@index([projectId])
+  @@index([createdAt])
+}
+
+// --------------- COST LOG (existing table — keep) ---------------
+
+model CostLog {
+  id        String   @id @default(cuid())
+  videoId   String?
+  service   String   // openai | veo3 | elevenlabs | anthropic
+  costUsd   Float
+  meta      Json?
+  createdAt DateTime @default(now())
+
+  @@index([videoId])
+  @@map("cost_log")
+}
