@@ -12,52 +12,80 @@
       "name": "Webhook - Receive Script",
       "type": "n8n-nodes-base.webhook",
       "typeVersion": 2,
-      "position": [0, 200],
+      "position": [
+        0,
+        200
+      ],
       "webhookId": "generate-scenes-webhook"
     },
     {
       "parameters": {
         "mode": "runOnceForAllItems",
-        "jsCode": "const body = $input.first().json.body || $input.first().json;\nif (!body.narration_script) throw new Error('narration_script is required');\nif (!body.title) throw new Error('title is required');\nconst config = {\n  episode_id:              body.episode_id || `ep_${new Date().getTime()}`,\n  title:                   body.title,\n  narration_script:        body.narration_script,\n  thumbnail_text:          body.thumbnail_text || body.title,\n  seo_keywords:            body.seo_keywords || [],\n  core_emotion:            body.core_emotion || null,\n  channel_niche:           body.channel_niche || $env.CHANNEL_NICHE || 'general',\n  language:                body.language || $env.CHANNEL_LANGUAGE || 'English',\n  visual_style:            body.visual_style || $env.CHANNEL_VISUAL_STYLE || 'cinematic, 16:9',\n  scene_seconds:           body.scene_seconds || parseInt($env.SCENE_VIDEO_SECONDS || '8'),\n  workspace:               '/data/pipeline'\n};\nreturn [{ json: config }];"
+        "jsCode": "const body = $input.first().json.body || $input.first().json;\nif (!body.narration_script) throw new Error('narration_script is required');\nif (!body.title) throw new Error('title is required');\nconst config = {\n  projectId:               body.projectId || '',\n  episode_id:              body.episode_id || `ep_${new Date().getTime()}`,\n  title:                   body.title,\n  narration_script:        body.narration_script,\n  thumbnail_text:          body.thumbnail_text || body.title,\n  seo_keywords:            body.seo_keywords || [],\n  core_emotion:            body.core_emotion || null,\n  channel_niche:           body.channel_niche || $env.CHANNEL_NICHE || 'general',\n  language:                body.language || $env.CHANNEL_LANGUAGE || 'English',\n  visual_style:            body.visual_style || $env.CHANNEL_VISUAL_STYLE || 'cinematic, 16:9',\n  scene_seconds:           body.scene_seconds || parseInt($env.SCENE_VIDEO_SECONDS || '8'),\n  workspace:               '/data/pipeline'\n};\nreturn [{ json: config }];"
       },
       "id": "b2000002-0000-0000-0000-000000000002",
       "name": "Code - Validate Input",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [240, 200]
+      "position": [
+        240,
+        200
+      ]
     },
     {
       "parameters": {
         "method": "POST",
-        "url": "https://api.openai.com/v1/responses",
+        "url": "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
-            { "name": "Authorization", "value": "=Bearer {{$env.OPENAI_API_KEY}}" },
-            { "name": "Content-Type", "value": "application/json" }
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{$env.OPENAI_API_KEY}}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
           ]
         },
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ model: $env.OPENAI_TEXT_MODEL || 'gpt-5.4-mini', input: [{ role: 'system', content: 'You are an AI video director. Return valid JSON only.' }, { role: 'user', content: `Break this script into ${$json.scene_seconds}-second cinematic scenes.\\n\\nFor each scene: scene_id (number), start_sec, end_sec, narration_excerpt, image_prompt (DALL-E), video_prompt (text-to-video), camera_motion, sound_design, negative_prompt.\\n\\nVisual style: ${$json.visual_style}\\n\\nReturn JSON: style_bible, scenes (array).\\n\\nScript:\\n${$json.narration_script}` }], text: { format: { type: 'json_object' } } }) }}",
-        "options": { "response": { "response": { "responseFormat": "json" } } }
+        "jsonBody": "={{ JSON.stringify({ model: $env.OPENAI_TEXT_MODEL || 'gemini-2.0-flash', messages: [{ role: 'system', content: 'You are an AI video director. Return ONLY valid JSON, no markdown.' }, { role: 'user', content: 'Break this ' + $json.scene_seconds + '-second-per-scene script into cinematic scenes. Return JSON: {style_bible, scenes: [{scene_id, start_sec, end_sec, narration_excerpt, image_prompt, video_prompt, camera_motion, sound_design}]}. Visual style: ' + $json.visual_style + '. Script: ' + $json.narration_script }] }) }}",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          },
+          "timeout": 60000
+        }
       },
       "id": "b2000003-0000-0000-0000-000000000003",
       "name": "AI - Scene Breakdown",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [480, 200]
+      "position": [
+        480,
+        200
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000
     },
     {
       "parameters": {
         "mode": "runOnceForAllItems",
-        "jsCode": "const raw = $input.first().json.output_text || '{}';\nlet plan; try { plan = JSON.parse(raw); } catch(e) { throw new Error('Cannot parse scene plan: ' + raw.slice(0,300)); }\nconst base = $('Code - Validate Input').first().json;\nreturn [{ json: { ...base, scene_plan: plan } }];"
+        "jsCode": "const resp = $input.first().json;\nconst raw = resp.choices?.[0]?.message?.content || resp.output_text || '{}';\nconst cleaned = raw.replace(/^```json\\s*/i,'').replace(/```\\s*$/,'').trim();\nlet plan;\ntry { plan = JSON.parse(cleaned); }\ncatch(e) { throw new Error('Cannot parse scene plan: ' + cleaned.slice(0,300)); }\nconst base = $('Code - Validate Input').first().json;\nreturn [{ json: { ...base, scene_plan: plan } }];"
       },
       "id": "b2000004-0000-0000-0000-000000000004",
       "name": "Code - Parse Scenes",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [720, 200]
+      "position": [
+        720,
+        200
+      ]
     },
     {
       "parameters": {
@@ -68,72 +96,61 @@
       "name": "Code - Split Scenes",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [960, 200]
-    },
-    {
-      "parameters": {
-        "method": "POST",
-        "url": "https://api.openai.com/v1/images/generations",
-        "sendHeaders": true,
-        "headerParameters": {
-          "parameters": [
-            { "name": "Authorization", "value": "=Bearer {{$env.OPENAI_API_KEY}}" },
-            { "name": "Content-Type", "value": "application/json" }
-          ]
-        },
-        "sendBody": true,
-        "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ model: $env.OPENAI_IMAGE_MODEL || 'gpt-image-2', prompt: `${$json.style_bible}\\nScene ${$json.scene.scene_id}: ${$json.scene.image_prompt}\\nCinematic 16:9, no text, no watermark.`, size: '1536x1024' }) }}",
-        "options": { "response": { "response": { "responseFormat": "json" } } }
-      },
-      "id": "b2000006-0000-0000-0000-000000000006",
-      "name": "HTTP - Generate Image",
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.2,
-      "position": [1200, 200]
-    },
-    {
-      "parameters": {
-        "jsCode": "const base = $('Code - Split Scenes').all()[$itemIndex]?.json || {};\nconst url = $input.first().json.data?.[0]?.url || null;\nreturn [{ json: { ...base, image_url: url } }];"
-      },
-      "id": "b2000007-0000-0000-0000-000000000007",
-      "name": "Code - Normalize Image",
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [1440, 200]
+      "position": [
+        960,
+        200
+      ]
     },
     {
       "parameters": {
         "mode": "runOnceForAllItems",
-        "jsCode": "const items = $input.all().map(i => i.json);\nconst base = items[0];\nreturn [{ json: {\n  episode_id: base.episode_id,\n  workspace: '/data/pipeline',\n  title: base.title,\n  narration_script: base.narration_script,\n  thumbnail_text: base.thumbnail_text,\n  seo_keywords: base.seo_keywords || [],\n  core_emotion: base.core_emotion || null,\n  scenes: items.map(item => ({\n    scene_id: String(item.scene.scene_id),\n    start_sec: item.scene.start_sec || 0,\n    end_sec: item.scene.end_sec || parseInt($env.SCENE_VIDEO_SECONDS || '8'),\n    narration_excerpt: item.scene.narration_excerpt || '',\n    image: item.image_url || null,\n    video_prompt: item.scene.video_prompt || item.scene.image_prompt || '',\n    sound_design: item.scene.sound_design || 'ambient'\n  }))\n} }];"
+        "jsCode": "const items = $input.all().map(i => i.json);\nconst base = items[0];\nconst projectId = $('Code - Validate Input').first().json.projectId || '';\nreturn [{ json: {\n  projectId,\n  episode_id: base.episode_id,\n  workspace: '/data/pipeline',\n  title: base.title,\n  narration_script: base.narration_script,\n  thumbnail_text: base.thumbnail_text,\n  seo_keywords: base.seo_keywords || [],\n  core_emotion: base.core_emotion || null,\n  scenes: items.map((item, idx) => {\n    const scene = item.scene || {};\n    const sceneId = scene.scene_id || ('scene_' + (idx + 1));\n    return {\n      scene_id: String(sceneId),\n      start_sec: scene.start_sec || 0,\n      end_sec: scene.end_sec || parseInt($env.SCENE_VIDEO_SECONDS || '8'),\n      narration_excerpt: scene.narration_excerpt || '',\n      image_url: 'https://picsum.photos/seed/' + sceneId + '/1536/1024',\n      video_prompt: scene.video_prompt || scene.image_prompt || '',\n      sound_design: scene.sound_design || 'ambient'\n    };\n  })\n} }];"
       },
       "id": "b2000008-0000-0000-0000-000000000008",
       "name": "Code - Build Manifest",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [1680, 200]
+      "position": [
+        1680,
+        200
+      ]
     },
     {
       "parameters": {
-        "method": "POST",
-        "url": "https://api.openai.com/v1/images/generations",
-        "sendHeaders": true,
+        "method": "GET",
+        "url": "=https://picsum.photos/seed/thumb_{{ $json.episode_id }}/1280/720",
+        "sendHeaders": false,
         "headerParameters": {
           "parameters": [
-            { "name": "Authorization", "value": "=Bearer {{$env.OPENAI_API_KEY}}" },
-            { "name": "Content-Type", "value": "application/json" }
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{$env.OPENAI_API_KEY}}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
           ]
         },
-        "sendBody": true,
+        "sendBody": false,
         "specifyBody": "json",
         "jsonBody": "={{ JSON.stringify({ model: $env.OPENAI_IMAGE_MODEL || 'gpt-image-2', prompt: `YouTube thumbnail for: ${$json.title}. Text overlay area: ${$json.thumbnail_text}. Style: ${$json.seo_keywords?.join(', ')}. Cinematic, emotional, high contrast, no watermark, no logo.`, size: '1536x1024' }) }}",
-        "options": { "response": { "response": { "responseFormat": "json" } } }
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "autodetect"
+            }
+          }
+        }
       },
       "id": "b2000011-0000-0000-0000-000000000011",
       "name": "HTTP - Generate Thumbnail",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [1920, 200]
+      "position": [
+        1920,
+        200
+      ]
     },
     {
       "parameters": {
@@ -144,7 +161,10 @@
       "name": "Code - Attach Thumbnail",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [2160, 200]
+      "position": [
+        2160,
+        200
+      ]
     },
     {
       "parameters": {
@@ -152,18 +172,32 @@
         "url": "http://python_worker:8000/api/v1/render",
         "sendHeaders": true,
         "headerParameters": {
-          "parameters": [{ "name": "Content-Type", "value": "application/json" }]
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
         },
         "sendBody": true,
         "specifyBody": "json",
         "jsonBody": "={{ JSON.stringify($json) }}",
-        "options": { "response": { "response": { "responseFormat": "json" } } }
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          }
+        }
       },
       "id": "b2000009-0000-0000-0000-000000000009",
       "name": "HTTP - Trigger Worker",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [2400, 200]
+      "position": [
+        2400,
+        200
+      ]
     },
     {
       "parameters": {
@@ -174,22 +208,113 @@
       "name": "Respond to Webhook",
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1.1,
-      "position": [2640, 200]
+      "position": [
+        2640,
+        200
+      ]
     }
   ],
   "pinData": {},
   "connections": {
-    "Webhook - Receive Script": { "main": [[{ "node": "Code - Validate Input", "type": "main", "index": 0 }]] },
-    "Code - Validate Input": { "main": [[{ "node": "AI - Scene Breakdown", "type": "main", "index": 0 }]] },
-    "AI - Scene Breakdown": { "main": [[{ "node": "Code - Parse Scenes", "type": "main", "index": 0 }]] },
-    "Code - Parse Scenes": { "main": [[{ "node": "Code - Split Scenes", "type": "main", "index": 0 }]] },
-    "Code - Split Scenes": { "main": [[{ "node": "HTTP - Generate Image", "type": "main", "index": 0 }]] },
-    "HTTP - Generate Image": { "main": [[{ "node": "Code - Normalize Image", "type": "main", "index": 0 }]] },
-    "Code - Normalize Image": { "main": [[{ "node": "Code - Build Manifest", "type": "main", "index": 0 }]] },
-    "Code - Build Manifest": { "main": [[{ "node": "HTTP - Generate Thumbnail", "type": "main", "index": 0 }]] },
-    "HTTP - Generate Thumbnail": { "main": [[{ "node": "Code - Attach Thumbnail", "type": "main", "index": 0 }]] },
-    "Code - Attach Thumbnail": { "main": [[{ "node": "HTTP - Trigger Worker", "type": "main", "index": 0 }]] },
-    "HTTP - Trigger Worker": { "main": [[{ "node": "Respond to Webhook", "type": "main", "index": 0 }]] }
+    "Webhook - Receive Script": {
+      "main": [
+        [
+          {
+            "node": "Code - Validate Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Validate Input": {
+      "main": [
+        [
+          {
+            "node": "AI - Scene Breakdown",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI - Scene Breakdown": {
+      "main": [
+        [
+          {
+            "node": "Code - Parse Scenes",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Parse Scenes": {
+      "main": [
+        [
+          {
+            "node": "Code - Split Scenes",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Split Scenes": {
+      "main": [
+        [
+          {
+            "node": "Code - Build Manifest",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Build Manifest": {
+      "main": [
+        [
+          {
+            "node": "HTTP - Generate Thumbnail",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP - Generate Thumbnail": {
+      "main": [
+        [
+          {
+            "node": "Code - Attach Thumbnail",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Attach Thumbnail": {
+      "main": [
+        [
+          {
+            "node": "HTTP - Trigger Worker",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP - Trigger Worker": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
   },
   "active": false,
   "settings": {
@@ -200,5 +325,10 @@
   "meta": {
     "description": "Entry point when you already have a script. POST narration_script + title to trigger scene breakdown, DALL-E images, and Python worker."
   },
-  "tags": ["youtube", "ai-video", "scenes", "manual-entry"]
+  "tags": [
+    "youtube",
+    "ai-video",
+    "scenes",
+    "manual-entry"
+  ]
 }

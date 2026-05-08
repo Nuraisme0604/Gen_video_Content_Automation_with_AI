@@ -7,22 +7,30 @@ import { cn } from '@/lib/utils';
 function useProjectId() {
   const path = usePathname();
   const m = path.match(/\/projects\/([^/]+)/);
-  return m ? m[1] : null;
+  // Filter out next.js segment paths and known non-id paths
+  if (m && m[1] && !['create', 'videos', 'frames', '__next'].includes(m[1])) return m[1];
+  if (typeof window !== 'undefined') {
+    return localStorage.getItem('vca:lastProjectId') || null;
+  }
+  return null;
 }
 
 export function Sidebar() {
   const path = usePathname();
   const projectId = useProjectId();
 
-  const projectBase = projectId ? `/projects/${projectId}` : '/projects';
+  // Save current project to localStorage when on a project page
+  if (typeof window !== 'undefined' && projectId) {
+    localStorage.setItem('vca:lastProjectId', projectId);
+  }
 
   const NAV = [
-    { href: '/projects', icon: LayoutDashboard, label: 'Dự án', exact: true },
-    { href: `${projectBase}/create`, icon: Video, label: 'Tạo video' },
-    { href: `${projectBase}/videos`, icon: FolderOpen, label: 'Quản lý video' },
-    { href: '/api-sources', icon: Plug, label: 'Nguồn API' },
-    { href: '/notifications', icon: Bell, label: 'Thông báo' },
-    { href: `${projectBase}/frames`, icon: Image, label: 'Quản lý frame' },
+    { href: '/projects', icon: LayoutDashboard, label: 'Dự án', exact: true, requiresProject: false },
+    { href: projectId ? `/projects/${projectId}/create` : '/projects', icon: Video, label: 'Tạo video', requiresProject: true },
+    { href: projectId ? `/projects/${projectId}/videos` : '/projects', icon: FolderOpen, label: 'Quản lý video', requiresProject: true },
+    { href: '/api-sources', icon: Plug, label: 'Nguồn API', requiresProject: false },
+    { href: '/notifications', icon: Bell, label: 'Thông báo', requiresProject: false },
+    { href: projectId ? `/projects/${projectId}/frames` : '/projects', icon: Image, label: 'Quản lý frame', requiresProject: true },
   ];
 
   const BOTTOM = [
@@ -39,18 +47,24 @@ export function Sidebar() {
   return (
     <aside className="sidebar w-[240px] shrink-0 flex flex-col py-4 overflow-y-auto">
       <nav className="flex-1 px-2 space-y-0.5">
-        {NAV.map(({ href, icon: Icon, label, exact }) => (
-          <Link key={`${href}-${label}`} href={href}
-            className={cn(
-              'flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-colors',
-              isActive(href, exact)
-                ? 'bg-violet-600/20 text-violet-300'
-                : 'text-zinc-400 hover:text-white hover:bg-white/5',
-            )}>
-            <Icon size={16} />
-            {label}
-          </Link>
-        ))}
+        {NAV.map(({ href, icon: Icon, label, exact, requiresProject }) => {
+          const disabled = requiresProject && !projectId;
+          return (
+            <Link key={`${href}-${label}`} href={href}
+              title={disabled ? 'Chọn dự án trước' : undefined}
+              className={cn(
+                'flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-colors',
+                disabled ? 'text-zinc-600 cursor-not-allowed pointer-events-auto' :
+                isActive(href, exact)
+                  ? 'bg-violet-600/20 text-violet-300'
+                  : 'text-zinc-400 hover:text-white hover:bg-white/5',
+              )}>
+              <Icon size={16} />
+              {label}
+              {disabled && <span className="ml-auto text-[10px]">⚠️</span>}
+            </Link>
+          );
+        })}
       </nav>
 
       <div className="px-2 pt-2 border-t border-[--border] space-y-0.5 mt-2">

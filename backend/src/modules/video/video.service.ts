@@ -29,9 +29,10 @@ export class VideoService {
   async getPreviewUrl(id: string) {
     const v = await this.get(id);
     if (!v.masterVideoKey) return { url: null };
-    const endpoint = this.config.get('S3_ENDPOINT', 'http://minio:9000');
+    // Public URL — replace internal Docker hostname with browser-accessible localhost
+    const endpoint = (this.config.get('S3_PUBLIC_ENDPOINT') || this.config.get('S3_ENDPOINT', 'http://minio:9000'))
+      .replace('minio:9000', 'localhost:9000');
     const bucket = this.config.get('S3_BUCKET_ASSETS', 'assets');
-    // For Phase 2 return direct URL. Phase 3 will use presigned via MinIO SDK.
     return { url: `${endpoint}/${bucket}/${v.masterVideoKey}` };
   }
 

@@ -1,5 +1,6 @@
 import os
 import logging
+import requests
 from typing import List, Optional, Dict, Any
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from fastapi import FastAPI, BackgroundTasks
@@ -28,10 +29,11 @@ app = FastAPI(title="Content Engine Worker", version="3.0.0")
 
 class RenderScene(BaseModel):
     scene_id: str
-    start_sec: int
-    end_sec: int
+    start_sec: float = 0
+    end_sec: float = 8
     narration_excerpt: str
-    image: Optional[str] = None        # Pre-generated image URL (DALL-E from n8n)
+    image: Optional[str] = None        # Legacy field name
+    image_url: Optional[str] = None    # Pre-generated image URL
     video_url: Optional[str] = None    # Pre-rendered video URL (skip generation)
     task_id: Optional[str] = None      # Runway task ID (if pre-submitted by n8n)
     video_prompt: Optional[str] = None # Prompt for worker to generate video (Veo3/Runway)
@@ -42,6 +44,7 @@ class RenderManifest(BaseModel):
     episode_id: str
     workspace: str
     title: str
+    projectId: Optional[str] = None
     narration_script: str
     thumbnail_text: str
     seo_keywords: List[str]
@@ -182,14 +185,17 @@ def process_video_pipeline(manifest: RenderManifest):
         # 1. Upsert video record
         with SessionLocal() as db:
             existing = db.execute(text("SELECT id FROM videos WHERE id = :id"), {"id": video_id}).fetchone()
+            project_id = getattr(manifest, 'projectId', None) or getattr(manifest, 'project_id', None)
             if not existing:
+                if not project_id:
+                    raise ValueError("projectId required to create new video record")
                 db.execute(
-                    text("INSERT INTO videos (id, topic_title, status) VALUES (:id, :title, 'rendering')"),
-                    {"id": video_id, "title": manifest.title},
+                    text('INSERT INTO videos (id, "projectId", title, status, "createdAt", "updatedAt") VALUES (:id, :pid, :title, \'rendering\', NOW(), NOW())'),
+                    {"id": video_id, "pid": project_id, "title": manifest.title},
                 )
             else:
                 db.execute(
-                    text("UPDATE videos SET status = 'rendering' WHERE id = :id"), {"id": video_id}
+                    text('UPDATE videos SET status = \'rendering\', "updatedAt" = NOW() WHERE id = :id'), {"id": video_id}
                 )
             db.commit()
 
@@ -246,13 +252,17 @@ def process_video_pipeline(manifest: RenderManifest):
                     if not results.get("audio_path"): missing.append("voiceover")
                     err_msg = f"Asset gen failed: {', '.join(missing) or 'unknown'}"
 
+                import uuid as _u
+                scene_id = f"{video_id}_{scene_order}"
                 db.execute(
                     text(
-                        "INSERT INTO scenes (video_id, scene_index, voiceover_text, "
-                        "audio_path, video_path, image_path, status, error_message, cost_usd) "
-                        "VALUES (:vid, :idx, :votext, :apath, :vpath, :ipath, :status, :err, :cost)"
+                        'INSERT INTO scenes (id, "videoId", "sceneIndex", "voiceoverText", '
+                        '"audioKey", "videoKey", "imageKey", status, "errorMessage", "costUsd", "updatedAt") '
+                        'VALUES (:id, :vid, :idx, :votext, :apath, :vpath, :ipath, :status, :err, :cost, NOW()) '
+                        'ON CONFLICT (id) DO UPDATE SET status = EXCLUDED.status, "errorMessage" = EXCLUDED."errorMessage", "updatedAt" = NOW()'
                     ),
                     {
+                        "id": scene_id,
                         "vid": video_id,
                         "idx": scene_order,
                         "votext": scene.narration_excerpt,
@@ -265,8 +275,8 @@ def process_video_pipeline(manifest: RenderManifest):
                     },
                 )
             db.execute(
-                text("INSERT INTO cost_log (video_id, service, cost_usd) VALUES (:vid, :svc, :cost)"),
-                {"vid": video_id, "svc": "pipeline_total", "cost": total_cost},
+                text('INSERT INTO cost_log (id, "videoId", service, "costUsd") VALUES (:id, :vid, :svc, :cost)'),
+                {"id": str(_u.uuid4()), "vid": video_id, "svc": "pipeline_total", "cost": total_cost},
             )
             db.commit()
 
@@ -304,21 +314,47 @@ def process_video_pipeline(manifest: RenderManifest):
             tags=seo.get("tags", manifest.seo_keywords),
         )
 
-        # 9. Update DB status
-        # 'uploaded' = thực sự upload thành công lên YouTube (có URL trả về)
-        # 'rendered' = master video xong + còn local nhưng chưa lên YouTube (creds thiếu hoặc upload fail)
+        # 9. Upload master video to MinIO so FE can play it
+        master_video_key = None
+        try:
+            from storage import upload_file as s3_upload
+            if os.path.exists(master_video_path):
+                master_video_key = s3_upload(master_video_path, f"videos/{video_id}/master.mp4", "video/mp4")
+        except Exception as e:
+            logger.error(f"[{video_id}] MinIO upload failed: {e}")
+
+        # 10. Update DB status (include masterVideoKey)
         final_status = "uploaded" if youtube_url else "rendered"
         with SessionLocal() as db:
             db.execute(
-                text("UPDATE videos SET status = :status, total_cost_usd = :cost, youtube_video_id = :yt WHERE id = :id"),
+                text('UPDATE videos SET status = :status, "totalCostUsd" = :cost, "youtubeVideoId" = :yt, "masterVideoKey" = :mvk, "durationSec" = :dur, "updatedAt" = NOW() WHERE id = :id'),
                 {
                     "id": video_id,
                     "status": final_status,
                     "cost": total_cost,
                     "yt": youtube_url.split("v=")[-1] if youtube_url else None,
+                    "mvk": master_video_key,
+                    "dur": len(manifest.scenes) * int(os.getenv("SCENE_VIDEO_SECONDS", "8")),
                 },
             )
             db.commit()
+
+        # 10b. Notify NestJS backend so Socket.IO clients update + emit job:complete
+        try:
+            backend_url = os.getenv("BACKEND_URL", "http://backend:3001")
+            requests.post(
+                f"{backend_url}/api/v1/webhooks/worker/render-complete",
+                json={
+                    "videoId": video_id,
+                    "masterVideoKey": master_video_key,
+                    "durationSec": len(manifest.scenes) * int(os.getenv("SCENE_VIDEO_SECONDS", "8")),
+                    "totalCostUsd": total_cost,
+                    "success": True,
+                },
+                timeout=10,
+            )
+        except Exception as e:
+            logger.warning(f"[{video_id}] Backend webhook failed: {e}")
 
         logger.info(f"[{video_id}] ✅ Pipeline complete. Cost: ${total_cost:.2f}")
 
@@ -343,10 +379,20 @@ def process_video_pipeline(manifest: RenderManifest):
         logger.error(f"[{video_id}] ❌ Pipeline failed: {e}", exc_info=True)
         try:
             with SessionLocal() as db:
-                db.execute(text("UPDATE videos SET status = 'failed' WHERE id = :id"), {"id": video_id})
+                db.execute(text('UPDATE videos SET status = \'failed\', "errorMsg" = :err, "updatedAt" = NOW() WHERE id = :id'), {"id": video_id, "err": str(e)[:500]})
                 db.commit()
         except Exception as db_err:
             logger.error(f"[{video_id}] Could not update failed status in DB: {db_err}")
+        # Notify backend on failure too
+        try:
+            backend_url = os.getenv("BACKEND_URL", "http://backend:3001")
+            requests.post(
+                f"{backend_url}/api/v1/webhooks/worker/render-complete",
+                json={"videoId": video_id, "success": False, "error": str(e)[:500]},
+                timeout=10,
+            )
+        except Exception:
+            pass
         from distributor import send_telegram_notification
         send_telegram_notification(f"❌ <b>PIPELINE FAILED</b>\n\nVideo: {video_id}\nError: {e}")
 

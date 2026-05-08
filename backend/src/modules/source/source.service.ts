@@ -56,28 +56,23 @@ export class SourceService {
       },
     });
 
-    // Trigger n8n workflow 02 directly
+    // Trigger n8n workflow 02 — non-blocking, returns source regardless
     const n8nBase = this.config.get('N8N_BASE_URL', 'http://n8n:5678');
-    try {
-      await firstValueFrom(
-        this.http.post(`${n8nBase}/webhook/start-pipeline`, {
-          sourceId: source.id,
-          projectId: dto.projectId,
-          title: dto.title,
-          script: dto.script,
-          disclaimer_accepted: dto.disclaimerAccepted,
-        }),
-      );
-      await this.prisma.apiSource.update({
-        where: { id: source.id },
-        data: { status: 'sent_to_n8n' },
-      });
-    } catch {
-      await this.prisma.apiSource.update({
-        where: { id: source.id },
-        data: { status: 'failed', errorMsg: 'n8n trigger failed' },
-      });
-    }
+    firstValueFrom(
+      this.http.post(`${n8nBase}/webhook/generate-scenes`, {
+        sourceId: source.id,
+        projectId: dto.projectId,
+        episode_id: source.id,
+        title: dto.title,
+        narration_script: dto.script,
+        thumbnail_text: dto.title,
+        disclaimer_accepted: dto.disclaimerAccepted,
+      }, { timeout: 5000 }),
+    ).then(() =>
+      this.prisma.apiSource.update({ where: { id: source.id }, data: { status: 'sent_to_n8n' } })
+    ).catch(() =>
+      this.prisma.apiSource.update({ where: { id: source.id }, data: { status: 'queued', errorMsg: 'n8n not reachable — queued for retry' } })
+    );
 
     return source;
   }

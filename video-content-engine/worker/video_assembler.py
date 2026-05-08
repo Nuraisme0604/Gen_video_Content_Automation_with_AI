@@ -25,7 +25,7 @@ def assemble_master_video(video_id: str):
     # 1. Fetch scenes từ DB
     with SessionLocal() as db:
         scenes = db.execute(
-            text("SELECT id, scene_index, video_path, audio_path FROM scenes WHERE video_id = :id AND status = 'completed' ORDER BY scene_index ASC"),
+            text('SELECT id, "sceneIndex" AS scene_index, "videoKey" AS video_path, "audioKey" AS audio_path FROM scenes WHERE "videoId" = :id AND status = \'completed\' ORDER BY "sceneIndex" ASC'),
             {"id": video_id}
         ).fetchall()
 
@@ -146,7 +146,7 @@ def generate_subtitles(video_id: str):
 
     with SessionLocal() as db:
         scenes = db.execute(
-            text("SELECT scene_index, voiceover_text FROM scenes WHERE video_id = :id AND status = 'completed' ORDER BY scene_index ASC"),
+            text('SELECT "sceneIndex" AS scene_index, "voiceoverText" AS voiceover_text FROM scenes WHERE "videoId" = :id AND status = \'completed\' ORDER BY "sceneIndex" ASC'),
             {"id": video_id}
         ).fetchall()
 

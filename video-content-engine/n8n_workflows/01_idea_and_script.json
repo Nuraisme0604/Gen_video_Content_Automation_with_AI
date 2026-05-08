@@ -4,14 +4,27 @@
     {
       "parameters": {
         "rule": {
-          "interval": [{ "field": "weeks", "triggerAtDay": [1, 4], "triggerAtHour": 8, "triggerAtMinute": 0 }]
+          "interval": [
+            {
+              "field": "weeks",
+              "triggerAtDay": [
+                1,
+                4
+              ],
+              "triggerAtHour": 8,
+              "triggerAtMinute": 0
+            }
+          ]
         }
       },
       "id": "a1000001-0000-0000-0000-000000000001",
       "name": "Schedule Trigger",
       "type": "n8n-nodes-base.scheduleTrigger",
       "typeVersion": 1.2,
-      "position": [0, 0]
+      "position": [
+        0,
+        0
+      ]
     },
     {
       "parameters": {},
@@ -19,7 +32,10 @@
       "name": "Manual Trigger",
       "type": "n8n-nodes-base.manualTrigger",
       "typeVersion": 1,
-      "position": [0, 200]
+      "position": [
+        0,
+        200
+      ]
     },
     {
       "parameters": {
@@ -32,7 +48,10 @@
       "name": "Webhook Trigger",
       "type": "n8n-nodes-base.webhook",
       "typeVersion": 2,
-      "position": [0, 400],
+      "position": [
+        0,
+        400
+      ],
       "webhookId": "start-pipeline-webhook"
     },
     {
@@ -44,7 +63,10 @@
       "name": "Code - Merge Config",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [240, 200]
+      "position": [
+        240,
+        200
+      ]
     },
     {
       "parameters": {
@@ -55,8 +77,15 @@
       "name": "Postgres - Get Prev Topics",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.4,
-      "position": [480, 80],
-      "credentials": { "postgres": { "name": "Postgres" } }
+      "position": [
+        480,
+        80
+      ],
+      "credentials": {
+        "postgres": {
+          "name": "Postgres"
+        }
+      }
     },
     {
       "parameters": {
@@ -67,7 +96,10 @@
       "name": "Code - Aggregate Topics",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [720, 80]
+      "position": [
+        720,
+        80
+      ]
     },
     {
       "parameters": {
@@ -78,29 +110,47 @@
       "name": "Code - Fetch YouTube Channel Data",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [840, 200]
+      "position": [
+        840,
+        200
+      ]
     },
     {
       "parameters": {
         "method": "POST",
-        "url": "https://api.openai.com/v1/responses",
+        "url": "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
-            { "name": "Authorization", "value": "=Bearer {{$env.OPENAI_API_KEY}}" },
-            { "name": "Content-Type", "value": "application/json" }
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{$env.OPENAI_API_KEY}}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
           ]
         },
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ model: $env.OPENAI_TEXT_MODEL || 'gpt-5.4-mini', input: [{ role: 'system', content: `You are a senior YouTube content strategist. Channel niche: ${$json.channel_niche}. Return valid JSON only.` }, { role: 'user', content: `${$json.channel_analysis && !$json.channel_analysis.error ? 'REFERENCE CHANNEL (REAL data from YouTube Data API):\\n' + JSON.stringify($json.channel_analysis, null, 2) + '\\n\\nStudy the title patterns, hooks, and topics of the top videos above. Identify what drives retention on this channel. Then create ONE NEW topic that fits the same audience and pattern but is original.\\n\\n' : ($json.channel_url ? 'Note: channel URL provided but could not be fetched (' + ($json.channel_analysis?.error || 'no API key') + '). Operate from niche only.\\n\\n' : '')}Create ONE high-retention video topic package for a ${$json.channel_niche} YouTube channel.\\nDo NOT reuse these topics: [${$json.previous_topics}].\\nOutput JSON: title, core_emotion, audience_promise, thumbnail_text, seo_keywords (array), hook_angle, story_seed, why_this_works.` }], text: { format: { type: 'json_object' } } }) }}",
-        "options": { "response": { "response": { "responseFormat": "json" } } }
+        "jsonBody": "={{ JSON.stringify({ model: $env.OPENAI_TEXT_MODEL || 'gpt-5.4-mini', messages: [{ role: 'system', content: `You are a senior YouTube content strategist. Channel niche: ${$json.channel_niche}. Return valid JSON only.` }, { role: 'user', content: `${$json.channel_analysis && !$json.channel_analysis.error ? 'REFERENCE CHANNEL (REAL data from YouTube Data API):\\n' + JSON.stringify($json.channel_analysis, null, 2) + '\\n\\nStudy the title patterns, hooks, and topics of the top videos above. Identify what drives retention on this channel. Then create ONE NEW topic that fits the same audience and pattern but is original.\\n\\n' : ($json.channel_url ? 'Note: channel URL provided but could not be fetched (' + ($json.channel_analysis?.error || 'no API key') + '). Operate from niche only.\\n\\n' : '')}Create ONE high-retention video topic package for a ${$json.channel_niche} YouTube channel.\\nDo NOT reuse these topics: [${$json.previous_topics}].\\nOutput JSON: title, core_emotion, audience_promise, thumbnail_text, seo_keywords (array), hook_angle, story_seed, why_this_works.` }] } }) }}",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          }
+        }
       },
       "id": "a1000007-0000-0000-0000-000000000007",
       "name": "AI - Generate Topic",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [1080, 80]
+      "position": [
+        1080,
+        80
+      ]
     },
     {
       "parameters": {
@@ -111,29 +161,47 @@
       "name": "Code - Parse Topic",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [1200, 80]
+      "position": [
+        1200,
+        80
+      ]
     },
     {
       "parameters": {
         "method": "POST",
-        "url": "https://api.openai.com/v1/responses",
+        "url": "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
-            { "name": "Authorization", "value": "=Bearer {{$env.OPENAI_API_KEY}}" },
-            { "name": "Content-Type", "value": "application/json" }
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{$env.OPENAI_API_KEY}}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
           ]
         },
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ model: $env.OPENAI_TEXT_MODEL || 'gpt-5.4-mini', input: [{ role: 'system', content: `You are a long-form YouTube scriptwriter. Write in ${$json.language}. Return valid JSON only.` }, { role: 'user', content: `Write a rough ${$json.target_duration_minutes}-minute YouTube script for this topic:\\n${JSON.stringify($json.topic)}\\n\\nStructure: Hook (0-30s) → Build (30s-80%) → Climax → Emotional ending → CTA.\\nOutput JSON: title, narration_script, hook, estimated_words, scene_count_hint.` }], text: { format: { type: 'json_object' } } }) }}",
-        "options": { "response": { "response": { "responseFormat": "json" } } }
+        "jsonBody": "={{ JSON.stringify({ model: $env.OPENAI_TEXT_MODEL || 'gpt-5.4-mini', messages: [{ role: 'system', content: `You are a long-form YouTube scriptwriter. Write in ${$json.language}. Return valid JSON only.` }, { role: 'user', content: `Write a rough ${$json.target_duration_minutes}-minute YouTube script for this topic:\\n${JSON.stringify($json.topic)}\\n\\nStructure: Hook (0-30s) → Build (30s-80%) → Climax → Emotional ending → CTA.\\nOutput JSON: title, narration_script, hook, estimated_words, scene_count_hint.` }] } }) }}",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          }
+        }
       },
       "id": "a1000009-0000-0000-0000-000000000009",
       "name": "AI - Write Rough Script",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [1440, 80]
+      "position": [
+        1440,
+        80
+      ]
     },
     {
       "parameters": {
@@ -144,7 +212,10 @@
       "name": "Code - Parse Rough Script",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [1680, 80]
+      "position": [
+        1680,
+        80
+      ]
     },
     {
       "parameters": {
@@ -153,21 +224,39 @@
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
-            { "name": "x-api-key", "value": "={{$env.ANTHROPIC_API_KEY}}" },
-            { "name": "anthropic-version", "value": "2023-06-01" },
-            { "name": "content-type", "value": "application/json" }
+            {
+              "name": "x-api-key",
+              "value": "={{$env.ANTHROPIC_API_KEY}}"
+            },
+            {
+              "name": "anthropic-version",
+              "value": "2023-06-01"
+            },
+            {
+              "name": "content-type",
+              "value": "application/json"
+            }
           ]
         },
         "sendBody": true,
         "specifyBody": "json",
         "jsonBody": "={{ JSON.stringify({ model: $env.CLAUDE_MODEL || 'claude-opus-4-7', max_tokens: 8192, messages: [{ role: 'user', content: `You are an elite YouTube scriptwriter. Rewrite this script to maximize viewer retention, emotional impact, and watch time.\\n\\nChannel niche: ${$json.channel_niche}\\nLanguage: ${$json.language}\\nTarget duration: ${$json.target_duration_minutes} minutes\\n\\nRough script to refine:\\n${$json.script.narration_script}\\n\\nReturn a JSON object with keys: narration_script (refined full text), title (improved YouTube title), improvements_made (brief list).` }] }) }}",
-        "options": { "response": { "response": { "responseFormat": "json" } } }
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          }
+        }
       },
       "id": "a1000011-0000-0000-0000-000000000011",
       "name": "HTTP - Claude Refine Script",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [1920, 80]
+      "position": [
+        1920,
+        80
+      ]
     },
     {
       "parameters": {
@@ -178,29 +267,47 @@
       "name": "Code - Parse Claude Refinement",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [2160, 80]
+      "position": [
+        2160,
+        80
+      ]
     },
     {
       "parameters": {
         "method": "POST",
-        "url": "https://api.openai.com/v1/responses",
+        "url": "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
-            { "name": "Authorization", "value": "=Bearer {{$env.OPENAI_API_KEY}}" },
-            { "name": "Content-Type", "value": "application/json" }
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{$env.OPENAI_API_KEY}}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
           ]
         },
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ model: $env.OPENAI_TEXT_MODEL || 'gpt-5.4-mini', input: [{ role: 'system', content: 'You are a YouTube retention editor. Return valid JSON only.' }, { role: 'user', content: `QA check this script. Score 0-100 for: retention, emotional clarity, topic accuracy, YouTube suitability.\\nReturn JSON: score_0_100, verdict (pass/fail), issues (array), suggested_fixes (array).\\n\\nScript:\\n${$json.script.narration_script}` }], text: { format: { type: 'json_object' } } }) }}",
-        "options": { "response": { "response": { "responseFormat": "json" } } }
+        "jsonBody": "={{ JSON.stringify({ model: $env.OPENAI_TEXT_MODEL || 'gpt-5.4-mini', messages: [{ role: 'system', content: 'You are a YouTube retention editor. Return valid JSON only.' }, { role: 'user', content: `QA check this script. Score 0-100 for: retention, emotional clarity, topic accuracy, YouTube suitability.\\nReturn JSON: score_0_100, verdict (pass/fail), issues (array), suggested_fixes (array).\\n\\nScript:\\n${$json.script.narration_script}` }] } }) }}",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          }
+        }
       },
       "id": "a1000013-0000-0000-0000-000000000013",
       "name": "AI - QA Script",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [2400, -100]
+      "position": [
+        2400,
+        -100
+      ]
     },
     {
       "parameters": {
@@ -211,29 +318,47 @@
       "name": "Code - QA Gate",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [2640, -100]
+      "position": [
+        2640,
+        -100
+      ]
     },
     {
       "parameters": {
         "method": "POST",
-        "url": "https://api.openai.com/v1/responses",
+        "url": "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
-            { "name": "Authorization", "value": "=Bearer {{$env.OPENAI_API_KEY}}" },
-            { "name": "Content-Type", "value": "application/json" }
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{$env.OPENAI_API_KEY}}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
           ]
         },
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ model: $env.OPENAI_TEXT_MODEL || 'gpt-5.4-mini', input: [{ role: 'system', content: 'You are an AI video director. Return valid JSON only.' }, { role: 'user', content: `Break this ${$json.target_duration_minutes}-minute script into ${$json.scene_seconds}-second cinematic scenes.\\n\\nFor each scene output: scene_id (number), start_sec, end_sec, narration_excerpt (exact script text for this scene), image_prompt (for DALL-E, describe visual), video_prompt (for Veo3/Runway text-to-video), camera_motion, sound_design, negative_prompt.\\n\\nVisual style: ${$json.visual_style}\\n\\nReturn JSON: style_bible, scenes (array).\\n\\nScript:\\n${$json.script.narration_script}` }], text: { format: { type: 'json_object' } } }) }}",
-        "options": { "response": { "response": { "responseFormat": "json" } } }
+        "jsonBody": "={{ JSON.stringify({ model: $env.OPENAI_TEXT_MODEL || 'gpt-5.4-mini', messages: [{ role: 'system', content: 'You are an AI video director. Return valid JSON only.' }, { role: 'user', content: `Break this ${$json.target_duration_minutes}-minute script into ${$json.scene_seconds}-second cinematic scenes.\\n\\nFor each scene output: scene_id (number), start_sec, end_sec, narration_excerpt (exact script text for this scene), image_prompt (for DALL-E, describe visual), video_prompt (for Veo3/Runway text-to-video), camera_motion, sound_design, negative_prompt.\\n\\nVisual style: ${$json.visual_style}\\n\\nReturn JSON: style_bible, scenes (array).\\n\\nScript:\\n${$json.script.narration_script}` }] } }) }}",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          }
+        }
       },
       "id": "a1000015-0000-0000-0000-000000000015",
       "name": "AI - Scene Breakdown",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [2400, 80]
+      "position": [
+        2400,
+        80
+      ]
     },
     {
       "parameters": {
@@ -244,7 +369,10 @@
       "name": "Code - Parse Scenes",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [2640, 80]
+      "position": [
+        2640,
+        80
+      ]
     },
     {
       "parameters": {
@@ -255,7 +383,10 @@
       "name": "Code - Split Scenes",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [2880, 80]
+      "position": [
+        2880,
+        80
+      ]
     },
     {
       "parameters": {
@@ -264,20 +395,35 @@
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
-            { "name": "Authorization", "value": "=Bearer {{$env.OPENAI_API_KEY}}" },
-            { "name": "Content-Type", "value": "application/json" }
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{$env.OPENAI_API_KEY}}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
           ]
         },
         "sendBody": true,
         "specifyBody": "json",
         "jsonBody": "={{ JSON.stringify({ model: $env.OPENAI_IMAGE_MODEL || 'gpt-image-2', prompt: `${$json.style_bible}\\nScene ${$json.scene.scene_id}: ${$json.scene.image_prompt}\\nNegative: ${$json.scene.negative_prompt}\\nCinematic 16:9, no text, no watermark, no logo.`, size: '1536x1024' }) }}",
-        "options": { "response": { "response": { "responseFormat": "json" } } }
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          }
+        }
       },
       "id": "a1000018-0000-0000-0000-000000000018",
       "name": "HTTP - Generate Scene Image",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [3120, 80]
+      "position": [
+        3120,
+        80
+      ]
     },
     {
       "parameters": {
@@ -287,7 +433,10 @@
       "name": "Code - Normalize Image",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [3360, 80]
+      "position": [
+        3360,
+        80
+      ]
     },
     {
       "parameters": {
@@ -298,29 +447,47 @@
       "name": "Code - Build Manifest",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [3600, 80]
+      "position": [
+        3600,
+        80
+      ]
     },
     {
       "parameters": {
         "method": "POST",
-        "url": "https://api.openai.com/v1/responses",
+        "url": "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
-            { "name": "Authorization", "value": "=Bearer {{$env.OPENAI_API_KEY}}" },
-            { "name": "Content-Type", "value": "application/json" }
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{$env.OPENAI_API_KEY}}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
           ]
         },
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ model: $env.OPENAI_TEXT_MODEL || 'gpt-5.4-mini', input: [{ role: 'system', content: 'You are a YouTube SEO strategist. Return valid JSON only.' }, { role: 'user', content: `Create upload metadata for this YouTube video.\\nTitle: ${$json.title}\\nKeywords: ${JSON.stringify($json.seo_keywords)}\\nReturn JSON: final_title, description (with chapters), tags (array, max 30), chapters (array of {time, title}).` }], text: { format: { type: 'json_object' } } }) }}",
-        "options": { "response": { "response": { "responseFormat": "json" } } }
+        "jsonBody": "={{ JSON.stringify({ model: $env.OPENAI_TEXT_MODEL || 'gpt-5.4-mini', messages: [{ role: 'system', content: 'You are a YouTube SEO strategist. Return valid JSON only.' }, { role: 'user', content: `Create upload metadata for this YouTube video.\\nTitle: ${$json.title}\\nKeywords: ${JSON.stringify($json.seo_keywords)}\\nReturn JSON: final_title, description (with chapters), tags (array, max 30), chapters (array of {time, title}).` }] } }) }}",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          }
+        }
       },
       "id": "a1000021-0000-0000-0000-000000000021",
       "name": "HTTP - Generate SEO Metadata",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [3840, 80]
+      "position": [
+        3840,
+        80
+      ]
     },
     {
       "parameters": {
@@ -331,7 +498,10 @@
       "name": "Code - Parse SEO",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [4080, 80]
+      "position": [
+        4080,
+        80
+      ]
     },
     {
       "parameters": {
@@ -340,20 +510,35 @@
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
-            { "name": "Authorization", "value": "=Bearer {{$env.OPENAI_API_KEY}}" },
-            { "name": "Content-Type", "value": "application/json" }
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{$env.OPENAI_API_KEY}}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
           ]
         },
         "sendBody": true,
         "specifyBody": "json",
         "jsonBody": "={{ JSON.stringify({ model: $env.OPENAI_IMAGE_MODEL || 'gpt-image-2', prompt: `YouTube thumbnail for: ${$json.title}. Text overlay area: ${$json.thumbnail_text}. Style: ${$json.seo_keywords?.join(', ')}. Cinematic, emotional, high contrast, no watermark, no logo.`, size: '1536x1024' }) }}",
-        "options": { "response": { "response": { "responseFormat": "json" } } }
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          }
+        }
       },
       "id": "a1000023-0000-0000-0000-000000000023",
       "name": "HTTP - Generate Thumbnail",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [4320, 80]
+      "position": [
+        4320,
+        80
+      ]
     },
     {
       "parameters": {
@@ -364,7 +549,10 @@
       "name": "Code - Attach Thumbnail",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [4560, 80]
+      "position": [
+        4560,
+        80
+      ]
     },
     {
       "parameters": {
@@ -372,18 +560,32 @@
         "url": "http://python_worker:8000/api/v1/render",
         "sendHeaders": true,
         "headerParameters": {
-          "parameters": [{ "name": "Content-Type", "value": "application/json" }]
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
         },
         "sendBody": true,
         "specifyBody": "json",
         "jsonBody": "={{ JSON.stringify($json) }}",
-        "options": { "response": { "response": { "responseFormat": "json" } } }
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          }
+        }
       },
       "id": "a1000024-0000-0000-0000-000000000024",
       "name": "HTTP - Trigger Python Worker",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [4800, 80]
+      "position": [
+        4800,
+        80
+      ]
     },
     {
       "parameters": {
@@ -394,37 +596,300 @@
       "name": "Respond to Webhook",
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1.1,
-      "position": [4560, 400]
+      "position": [
+        4560,
+        400
+      ]
     }
   ],
   "pinData": {},
   "connections": {
-    "Schedule Trigger": { "main": [[{ "node": "Code - Merge Config", "type": "main", "index": 0 }]] },
-    "Manual Trigger": { "main": [[{ "node": "Code - Merge Config", "type": "main", "index": 0 }]] },
-    "Webhook Trigger": { "main": [[{ "node": "Code - Merge Config", "type": "main", "index": 0 }]] },
-    "Code - Merge Config": { "main": [[{ "node": "Postgres - Get Prev Topics", "type": "main", "index": 0 }]] },
-    "Postgres - Get Prev Topics": { "main": [[{ "node": "Code - Aggregate Topics", "type": "main", "index": 0 }]] },
-    "Code - Aggregate Topics": { "main": [[{ "node": "Code - Fetch YouTube Channel Data", "type": "main", "index": 0 }]] },
-    "Code - Fetch YouTube Channel Data": { "main": [[{ "node": "AI - Generate Topic", "type": "main", "index": 0 }]] },
-    "AI - Generate Topic": { "main": [[{ "node": "Code - Parse Topic", "type": "main", "index": 0 }]] },
-    "Code - Parse Topic": { "main": [[{ "node": "AI - Write Rough Script", "type": "main", "index": 0 }]] },
-    "AI - Write Rough Script": { "main": [[{ "node": "Code - Parse Rough Script", "type": "main", "index": 0 }]] },
-    "Code - Parse Rough Script": { "main": [[{ "node": "HTTP - Claude Refine Script", "type": "main", "index": 0 }]] },
-    "HTTP - Claude Refine Script": { "main": [[{ "node": "Code - Parse Claude Refinement", "type": "main", "index": 0 }]] },
-    "Code - Parse Claude Refinement": { "main": [[{ "node": "AI - QA Script", "type": "main", "index": 0 }]] },
-    "AI - QA Script": { "main": [[{ "node": "Code - QA Gate", "type": "main", "index": 0 }]] },
-    "Code - QA Gate": { "main": [[{ "node": "AI - Scene Breakdown", "type": "main", "index": 0 }]] },
-    "AI - Scene Breakdown": { "main": [[{ "node": "Code - Parse Scenes", "type": "main", "index": 0 }]] },
-    "Code - Parse Scenes": { "main": [[{ "node": "Code - Split Scenes", "type": "main", "index": 0 }]] },
-    "Code - Split Scenes": { "main": [[{ "node": "HTTP - Generate Scene Image", "type": "main", "index": 0 }]] },
-    "HTTP - Generate Scene Image": { "main": [[{ "node": "Code - Normalize Image", "type": "main", "index": 0 }]] },
-    "Code - Normalize Image": { "main": [[{ "node": "Code - Build Manifest", "type": "main", "index": 0 }]] },
-    "Code - Build Manifest": { "main": [[{ "node": "HTTP - Generate SEO Metadata", "type": "main", "index": 0 }]] },
-    "HTTP - Generate SEO Metadata": { "main": [[{ "node": "Code - Parse SEO", "type": "main", "index": 0 }]] },
-    "Code - Parse SEO": { "main": [[{ "node": "HTTP - Generate Thumbnail", "type": "main", "index": 0 }]] },
-    "HTTP - Generate Thumbnail": { "main": [[{ "node": "Code - Attach Thumbnail", "type": "main", "index": 0 }]] },
-    "Code - Attach Thumbnail": { "main": [[{ "node": "HTTP - Trigger Python Worker", "type": "main", "index": 0 }]] },
-    "HTTP - Trigger Python Worker": { "main": [[{ "node": "Respond to Webhook", "type": "main", "index": 0 }]] }
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "Code - Merge Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Manual Trigger": {
+      "main": [
+        [
+          {
+            "node": "Code - Merge Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook Trigger": {
+      "main": [
+        [
+          {
+            "node": "Code - Merge Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Merge Config": {
+      "main": [
+        [
+          {
+            "node": "Postgres - Get Prev Topics",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Postgres - Get Prev Topics": {
+      "main": [
+        [
+          {
+            "node": "Code - Aggregate Topics",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Aggregate Topics": {
+      "main": [
+        [
+          {
+            "node": "Code - Fetch YouTube Channel Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Fetch YouTube Channel Data": {
+      "main": [
+        [
+          {
+            "node": "AI - Generate Topic",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI - Generate Topic": {
+      "main": [
+        [
+          {
+            "node": "Code - Parse Topic",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Parse Topic": {
+      "main": [
+        [
+          {
+            "node": "AI - Write Rough Script",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI - Write Rough Script": {
+      "main": [
+        [
+          {
+            "node": "Code - Parse Rough Script",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Parse Rough Script": {
+      "main": [
+        [
+          {
+            "node": "HTTP - Claude Refine Script",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP - Claude Refine Script": {
+      "main": [
+        [
+          {
+            "node": "Code - Parse Claude Refinement",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Parse Claude Refinement": {
+      "main": [
+        [
+          {
+            "node": "AI - QA Script",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI - QA Script": {
+      "main": [
+        [
+          {
+            "node": "Code - QA Gate",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - QA Gate": {
+      "main": [
+        [
+          {
+            "node": "AI - Scene Breakdown",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI - Scene Breakdown": {
+      "main": [
+        [
+          {
+            "node": "Code - Parse Scenes",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Parse Scenes": {
+      "main": [
+        [
+          {
+            "node": "Code - Split Scenes",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Split Scenes": {
+      "main": [
+        [
+          {
+            "node": "HTTP - Generate Scene Image",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP - Generate Scene Image": {
+      "main": [
+        [
+          {
+            "node": "Code - Normalize Image",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Normalize Image": {
+      "main": [
+        [
+          {
+            "node": "Code - Build Manifest",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Build Manifest": {
+      "main": [
+        [
+          {
+            "node": "HTTP - Generate SEO Metadata",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP - Generate SEO Metadata": {
+      "main": [
+        [
+          {
+            "node": "Code - Parse SEO",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Parse SEO": {
+      "main": [
+        [
+          {
+            "node": "HTTP - Generate Thumbnail",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP - Generate Thumbnail": {
+      "main": [
+        [
+          {
+            "node": "Code - Attach Thumbnail",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Attach Thumbnail": {
+      "main": [
+        [
+          {
+            "node": "HTTP - Trigger Python Worker",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP - Trigger Python Worker": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
   },
   "active": false,
   "settings": {
@@ -436,5 +901,10 @@
   "meta": {
     "description": "Generic full-auto YouTube pipeline: channel analysis → topic → GPT script → Claude refinement → QA → scene breakdown → DALL-E images → Python worker. Works for any niche."
   },
-  "tags": ["youtube", "ai-video", "generic", "automation"]
+  "tags": [
+    "youtube",
+    "ai-video",
+    "generic",
+    "automation"
+  ]
 }

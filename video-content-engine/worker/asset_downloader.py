@@ -30,31 +30,19 @@ def download_file(url: str, dest_path: str) -> bool:
 
 
 def generate_voiceover(text: str, dest_path: str, voice_id: str, api_key: str) -> bool:
-    url = f"https://api.elevenlabs.io/v1/text-to-speech/{voice_id}"
-    headers = {
-        "Accept": "audio/mpeg",
-        "Content-Type": "application/json",
-        "xi-api-key": api_key,
-    }
-    data = {
-        "text": text,
-        "model_id": os.getenv("ELEVENLABS_MODEL", "eleven_multilingual_v2"),
-        "voice_settings": {
-            "stability": 0.45,
-            "similarity_boost": 0.85,
-            "style": 0.35,
-            "use_speaker_boost": True,
-        },
-    }
+    """Use Edge TTS (free, no API key) for voice synthesis."""
+    Path(dest_path).parent.mkdir(parents=True, exist_ok=True)
+    # Default Vietnamese male voice; override via VOICE_NAME env var
+    voice = os.getenv("VOICE_NAME", "vi-VN-NamMinhNeural")
     try:
-        response = session.post(url, json=data, headers=headers, timeout=60)
-        response.raise_for_status()
-        Path(dest_path).parent.mkdir(parents=True, exist_ok=True)
-        with open(dest_path, "wb") as f:
-            f.write(response.content)
-        return True
+        import edge_tts, asyncio
+        async def _run():
+            communicate = edge_tts.Communicate(text, voice)
+            await communicate.save(dest_path)
+        asyncio.run(_run())
+        return Path(dest_path).exists() and Path(dest_path).stat().st_size > 0
     except Exception as e:
-        logger.error(f"ElevenLabs voiceover failed: {e}")
+        logger.error(f"Edge TTS voiceover failed: {e}")
         return False
 
 
@@ -95,8 +83,33 @@ def _generate_video_from_prompt(prompt: str, dest_path: str, image_path: str = N
                     enables image-to-video mode → visual continuity. For Runway,
                     currently ignored (Runway image-to-video uses different param).
     """
-    provider = os.getenv("VIDEO_PROVIDER", "runway").lower()
+    provider = os.getenv("VIDEO_PROVIDER", "slideshow").lower()
     use_image = os.getenv("USE_IMAGE_TO_VIDEO", "true").lower() in ("true", "1", "yes")
+
+    if provider == "slideshow":
+        # Free fallback: convert image to MP4 via ffmpeg (Ken Burns zoom effect)
+        if not image_path or not Path(image_path).exists():
+            logger.warning(f"Slideshow needs image_path, none provided")
+            return False
+        duration = int(os.getenv("SCENE_VIDEO_SECONDS", "8"))
+        Path(dest_path).parent.mkdir(parents=True, exist_ok=True)
+        import subprocess
+        try:
+            cmd = [
+                "ffmpeg", "-y", "-loop", "1", "-i", image_path,
+                "-c:v", "libx264", "-t", str(duration), "-pix_fmt", "yuv420p",
+                "-vf", f"scale=1920:1080:force_original_aspect_ratio=increase,crop=1920:1080,zoompan=z='min(zoom+0.0015,1.5)':d={duration*25}:s=1920x1080",
+                "-r", "25", dest_path
+            ]
+            r = subprocess.run(cmd, capture_output=True, timeout=120)
+            if r.returncode == 0 and Path(dest_path).exists():
+                logger.info(f"Slideshow video created: {dest_path}")
+                return True
+            logger.error(f"ffmpeg failed: {r.stderr.decode()[:300]}")
+            return False
+        except Exception as e:
+            logger.error(f"Slideshow gen failed: {e}")
+            return False
 
     if provider == "veo3":
         from veo3_generator import generate_video_veo3
@@ -153,17 +166,17 @@ def download_assets_for_scene(scene: dict, assets_dir: str, runway_api_key: str,
     results = {"scene_id": scene_id, "video_path": None, "audio_path": None, "image_path": None}
 
     # 1. Download image (pre-generated URL from n8n/DALL-E)
-    image_url = scene.get("image")
+    image_url = scene.get("image_url") or scene.get("image")
     if image_url and image_url.startswith("http"):
         img_path = str(scene_dir / f"scene_{scene_id}_image.jpg")
         if download_file(image_url, img_path):
             results["image_path"] = img_path
 
-    # 2. Voiceover via ElevenLabs
+    # 2. Voiceover via Edge TTS (free, no API key required) or ElevenLabs
     text = scene.get("narration_excerpt", "")
-    if text and elevenlabs_api_key and voice_id:
+    if text:
         audio_path = str(scene_dir / f"scene_{scene_id}_voice.mp3")
-        if generate_voiceover(text, audio_path, voice_id, elevenlabs_api_key):
+        if generate_voiceover(text, audio_path, voice_id or "", elevenlabs_api_key or ""):
             results["audio_path"] = audio_path
 
     # 3. Video generation — three strategies in order of priority:
