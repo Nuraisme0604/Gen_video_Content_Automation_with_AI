@@ -113,8 +113,9 @@ export default function FramesPage({ params }: { params: Promise<{ id: string }>
                   <div className="text-xs text-zinc-300 drop-shadow">{frame.images?.length || 0} ảnh</div>
                 </div>
                 <button onClick={() => { if (confirm('Xoá frame này?')) del.mutate(frame.id); }}
-                  className="text-zinc-300 hover:text-rose-400 p-1.5 rounded bg-black/30 hover:bg-black/60">
-                  <Trash2 size={14} />
+                  className="text-rose-200 hover:text-rose-100 p-1.5 rounded-lg bg-rose-500/30 hover:bg-rose-500/60 backdrop-blur-sm transition-colors"
+                  title="Xoá frame">
+                  <Trash2 size={15} />
                 </button>
               </div>
             </div>

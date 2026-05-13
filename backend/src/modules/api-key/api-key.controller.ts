@@ -48,6 +48,9 @@ export class ApiKeyController {
     return this.svc.testKey(body.key, body.provider);
   }
 
+  @Post(':id/test')
+  testStored(@Param('id') id: string) { return this.svc.testStoredKey(id); }
+
   @Patch(':id/toggle')
   toggle(@Param('id') id: string) { return this.svc.toggleActive(id); }
 

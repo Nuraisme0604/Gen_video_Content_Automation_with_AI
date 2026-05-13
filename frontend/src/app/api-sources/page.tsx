@@ -1,8 +1,8 @@
 'use client';
 import { useState, useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { getApiKeys, createApiKey, toggleApiKey, deleteApiKey, resetApiKeyQuota, testTelegram, testApiKey } from '@/lib/api';
-import { Plus, CheckCircle2, XCircle, Trash2, Send, Eye, EyeOff, RotateCcw, Gauge, Sparkles, Loader2 } from 'lucide-react';
+import { getApiKeys, createApiKey, toggleApiKey, deleteApiKey, resetApiKeyQuota, testTelegram, testApiKey, testStoredApiKey } from '@/lib/api';
+import { Plus, CheckCircle2, XCircle, Trash2, Send, Eye, EyeOff, RotateCcw, Gauge, Sparkles, Loader2, Activity, AlertTriangle, HelpCircle } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 
@@ -117,7 +117,61 @@ type ApiKey = {
   quotaLimit?: number;
   quotaUsed: number;
   isActive: boolean;
+  lastTestedAt?: string | null;
+  lastTestStatus?: 'ok' | 'invalid' | 'quota' | 'error' | null;
+  lastTestError?: string | null;
+  lastTestLatency?: number | null;
 };
+
+function relativeTime(iso?: string | null): string {
+  if (!iso) return '';
+  const ms = Date.now() - new Date(iso).getTime();
+  const s = Math.floor(ms / 1000);
+  if (s < 60)    return `${s}s trước`;
+  if (s < 3600)  return `${Math.floor(s / 60)} phút trước`;
+  if (s < 86400) return `${Math.floor(s / 3600)} giờ trước`;
+  return `${Math.floor(s / 86400)} ngày trước`;
+}
+
+function HealthBadge({ k, testing }: { k: ApiKey; testing: boolean }) {
+  if (testing) {
+    return (
+      <span className="inline-flex items-center gap-1.5 text-violet-300 text-xs font-medium px-2 py-1 rounded-full bg-violet-500/15 border border-violet-500/30">
+        <Loader2 size={12} className="animate-spin" /> Đang test...
+      </span>
+    );
+  }
+  if (!k.lastTestStatus) {
+    return (
+      <span className="inline-flex items-center gap-1.5 text-zinc-400 text-xs font-medium px-2 py-1 rounded-full bg-zinc-800 border border-zinc-700"
+        title="Chưa kiểm tra với provider — bấm Test để xác minh">
+        <HelpCircle size={12} /> Chưa test
+      </span>
+    );
+  }
+  if (k.lastTestStatus === 'ok') {
+    return (
+      <span className="inline-flex items-center gap-1.5 text-emerald-300 text-xs font-medium px-2 py-1 rounded-full bg-emerald-500/15 border border-emerald-500/30"
+        title={`Hoạt động · ${k.lastTestLatency || '?'}ms · ${relativeTime(k.lastTestedAt)}`}>
+        <CheckCircle2 size={12} /> OK{k.lastTestLatency != null && ` · ${k.lastTestLatency}ms`}
+      </span>
+    );
+  }
+  if (k.lastTestStatus === 'quota') {
+    return (
+      <span className="inline-flex items-center gap-1.5 text-amber-300 text-xs font-medium px-2 py-1 rounded-full bg-amber-500/15 border border-amber-500/30"
+        title={k.lastTestError || 'Quota tạm thời hết'}>
+        <AlertTriangle size={12} /> Hết quota
+      </span>
+    );
+  }
+  return (
+    <span className="inline-flex items-center gap-1.5 text-rose-300 text-xs font-medium px-2 py-1 rounded-full bg-rose-500/15 border border-rose-500/30"
+      title={k.lastTestError || 'Key không sử dụng được'}>
+      <XCircle size={12} /> Hỏng
+    </span>
+  );
+}
 
 export default function ApiSourcesPage() {
   const qc = useQueryClient();
@@ -229,6 +283,40 @@ export default function ApiSourcesPage() {
     onError: (e: any) => toast.error('Test thất bại', { description: errMsg(e) }),
   });
 
+  const [testingIds, setTestingIds] = useState<Set<string>>(new Set());
+  const testStored = useMutation({
+    mutationFn: async (id: string) => {
+      setTestingIds(prev => new Set(prev).add(id));
+      try { return await testStoredApiKey(id); }
+      finally { setTestingIds(prev => { const n = new Set(prev); n.delete(id); return n; }); }
+    },
+    onSuccess: (r: any) => {
+      qc.invalidateQueries({ queryKey: ['api-keys'] });
+      if (r?.ok) toast.success('Key OK', { description: `${r.latencyMs}ms` });
+      else toast.error('Key không hoạt động', { description: r?.error || 'Unknown' });
+    },
+    onError: (e: any) => toast.error('Test thất bại', { description: errMsg(e) }),
+  });
+
+  const testAllStored = useMutation({
+    mutationFn: async () => {
+      const ids = (allKeys as ApiKey[]).map(k => k.id);
+      // Dedup by provider:keyMasked so we only test each unique key once
+      const seen = new Set<string>();
+      const uniqueIds = (allKeys as ApiKey[]).filter(k => {
+        const tag = `${k.provider}:${k.keyMasked}`;
+        if (seen.has(tag)) return false;
+        seen.add(tag);
+        return true;
+      }).map(k => k.id);
+      setTestingIds(new Set(ids));
+      try { await Promise.allSettled(uniqueIds.map(id => testStoredApiKey(id))); }
+      finally { setTestingIds(new Set()); }
+    },
+    onSettled: () => qc.invalidateQueries({ queryKey: ['api-keys'] }),
+    onSuccess: () => toast.success('Đã test xong tất cả key'),
+  });
+
   const toggleCap = (cap: string) => {
     setForm(f => ({
       ...f,
@@ -240,12 +328,28 @@ export default function ApiSourcesPage() {
 
   return (
     <div className="max-w-4xl mx-auto space-y-6">
-      <div className="flex items-center justify-between">
-        <h1 className="text-xl font-semibold">Nguồn API</h1>
-        <button onClick={() => setShowAdd(true)}
-          className="flex items-center gap-2 bg-violet-600 hover:bg-violet-700 text-white text-sm px-3 py-1.5 rounded-lg">
-          <Plus size={14} /> Thêm key
-        </button>
+      <div className="flex items-center justify-between gap-3 flex-wrap">
+        <div>
+          <h1 className="text-xl font-semibold">Nguồn API</h1>
+          <p className="text-xs text-zinc-500 mt-0.5">Quản lý key + kiểm tra key nào còn hoạt động</p>
+        </div>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => testAllStored.mutate()}
+            disabled={testAllStored.isPending || (allKeys as ApiKey[]).length === 0}
+            className="flex items-center gap-2 border border-zinc-700 hover:border-violet-500 hover:text-violet-300 text-zinc-300 text-sm px-3 py-1.5 rounded-lg disabled:opacity-50"
+            title="Test tất cả key xem cái nào còn hoạt động"
+          >
+            {testAllStored.isPending
+              ? <Loader2 size={14} className="animate-spin" />
+              : <Activity size={14} />}
+            {testAllStored.isPending ? 'Đang test...' : 'Test tất cả'}
+          </button>
+          <button onClick={() => setShowAdd(true)}
+            className="flex items-center gap-2 bg-violet-600 hover:bg-violet-700 text-white text-sm px-3 py-1.5 rounded-lg">
+            <Plus size={14} /> Thêm key
+          </button>
+        </div>
       </div>
 
       {/* Tab filter */}
@@ -288,15 +392,26 @@ export default function ApiSourcesPage() {
             const ids = group.map(g => g.id);
 
             const info = getProviderInfo(k.provider);
+            const isTesting = testingIds.has(k.id);
+            const badgeAccent =
+              k.lastTestStatus === 'ok'      ? 'ring-emerald-500/30' :
+              k.lastTestStatus === 'quota'   ? 'ring-amber-500/30' :
+              k.lastTestStatus === 'invalid' ||
+              k.lastTestStatus === 'error'   ? 'ring-rose-500/30' :
+              'ring-transparent';
             return (
-              <div key={idx} className={cn('flex items-center gap-4 px-4 py-3', !allActive && 'opacity-50')}>
+              <div key={idx} className={cn(
+                'flex flex-wrap md:flex-nowrap items-start md:items-center gap-3 md:gap-4 px-3 sm:px-4 py-3.5 transition-colors hover:bg-zinc-900/40 ring-1 ring-inset',
+                badgeAccent,
+                !allActive && 'opacity-60',
+              )}>
                 {/* Provider info */}
-                <div className="shrink-0 w-48">
-                  <div className="text-sm font-medium text-white mb-0.5">{info.displayName}</div>
+                <div className="shrink-0 w-full md:w-48">
+                  <div className="text-sm font-semibold text-white mb-0.5">{info.displayName}</div>
                   <div className="text-[11px] text-zinc-500 mb-1.5">{info.description}</div>
                   <div className="flex flex-wrap gap-1">
                     {types.map(t => (
-                      <span key={t} className="text-[10px] bg-violet-500/20 text-violet-300 px-1.5 py-0.5 rounded">
+                      <span key={t} className="text-[10px] bg-violet-500/20 text-violet-200 px-1.5 py-0.5 rounded font-medium">
                         {t}
                       </span>
                     ))}
@@ -304,56 +419,70 @@ export default function ApiSourcesPage() {
                 </div>
 
                 <div className="flex-1 min-w-0">
-                  {k.label && <div className="text-xs text-zinc-400 mb-0.5">{k.label}</div>}
-                  <div className="font-mono text-xs text-zinc-300 mb-1">{k.keyMasked}</div>
-                  {/* Show concrete models this key serves */}
+                  {k.label && <div className="text-xs text-zinc-300 mb-0.5 font-medium">{k.label}</div>}
+                  <div className="font-mono text-xs text-zinc-200 mb-1">{k.keyMasked}</div>
                   <div className="text-[10px] text-zinc-500">
                     Models:{' '}
                     {types.flatMap(t => info.modelsByCapability[t] || []).slice(0, 4).map(m => (
-                      <span key={m} className="font-mono mr-1.5 text-zinc-400">{m}</span>
+                      <span key={m} className="font-mono mr-1.5 text-zinc-300">{m}</span>
                     ))}
                     {types.flatMap(t => info.modelsByCapability[t] || []).length === 0 && (
                       <span className="text-zinc-600">— (provider tuỳ chỉnh, model nhập tay)</span>
                     )}
                   </div>
+                  {k.lastTestedAt && (
+                    <div className="text-[10px] text-zinc-600 mt-1">
+                      Test gần nhất: {relativeTime(k.lastTestedAt)}
+                      {k.lastTestStatus !== 'ok' && k.lastTestError && (
+                        <span className="text-rose-400/70 ml-1.5">· {k.lastTestError}</span>
+                      )}
+                    </div>
+                  )}
                 </div>
 
                 {pct !== null && (
-                  <div className="w-32 shrink-0">
-                    <div className="flex justify-between text-xs text-zinc-500 mb-0.5">
+                  <div className="w-full md:w-32 shrink-0">
+                    <div className="flex justify-between text-xs text-zinc-400 mb-0.5">
                       <span>{totalUsed}/{totalLimit}</span>
-                      <span className={pct > 80 ? 'text-amber-400' : 'text-zinc-500'}>{pct}%</span>
+                      <span className={pct > 80 ? 'text-amber-300 font-medium' : 'text-zinc-400'}>{pct}%</span>
                     </div>
-                    <div className="h-1 bg-zinc-800 rounded-full overflow-hidden">
-                      <div className={cn('h-full rounded-full', pct > 80 ? 'bg-amber-500' : 'bg-violet-600')}
+                    <div className="h-1.5 bg-zinc-800 rounded-full overflow-hidden">
+                      <div className={cn('h-full rounded-full transition-all', pct > 80 ? 'bg-amber-500' : 'bg-violet-500')}
                         style={{ width: `${Math.min(pct, 100)}%` }} />
                     </div>
                   </div>
                 )}
 
-                <div className="shrink-0">
-                  {allActive
-                    ? <span className="flex items-center gap-1 text-emerald-400 text-xs"><CheckCircle2 size={12} /> OK</span>
-                    : <span className="flex items-center gap-1 text-zinc-500 text-xs"><XCircle size={12} /> Tắt</span>}
+                <div className="shrink-0 flex md:flex-col flex-row items-start md:items-end gap-1.5 md:gap-1 w-full md:w-auto">
+                  <HealthBadge k={k} testing={isTesting} />
+                  {!allActive && (
+                    <span className="text-[10px] text-zinc-500">Đang tắt</span>
+                  )}
                 </div>
 
-                <div className="flex items-center gap-1 shrink-0">
+                <div className="flex items-center gap-1 shrink-0 ml-auto md:ml-0">
+                  <button onClick={() => testStored.mutate(k.id)}
+                    disabled={isTesting}
+                    className="p-2 text-violet-300 hover:text-violet-200 rounded-lg hover:bg-violet-500/15 disabled:opacity-50"
+                    title="Test key với provider thật">
+                    {isTesting ? <Loader2 size={14} className="animate-spin" /> : <Activity size={14} />}
+                  </button>
                   <button onClick={() => ids.forEach(id => toggle.mutate(id))}
-                    className="p-1.5 text-zinc-500 hover:text-white rounded hover:bg-zinc-800"
+                    className="p-2 text-zinc-300 hover:text-white rounded-lg hover:bg-zinc-800"
                     title={allActive ? 'Tắt tất cả' : 'Bật tất cả'}>
-                    <RotateCcw size={13} />
+                    <RotateCcw size={14} />
                   </button>
                   {totalLimit && (
                     <button onClick={() => { if (confirm('Reset quotaUsed về 0 cho tất cả?')) ids.forEach(id => resetQuota.mutate(id)); }}
-                      className="p-1.5 text-zinc-500 hover:text-amber-400 rounded hover:bg-zinc-800"
+                      className="p-2 text-zinc-300 hover:text-amber-300 rounded-lg hover:bg-amber-500/15"
                       title="Reset quota">
-                      <Gauge size={13} />
+                      <Gauge size={14} />
                     </button>
                   )}
                   <button onClick={() => { if (confirm(`Xoá key này (${types.length} usage)?`)) delGroup.mutate(ids); }}
-                    className="p-1.5 text-zinc-500 hover:text-rose-400 rounded hover:bg-zinc-800"
-                    title="Xoá">
-                    <Trash2 size={13} />
+                    className="p-2 text-rose-300 hover:text-rose-200 rounded-lg hover:bg-rose-500/15"
+                    title="Xoá key">
+                    <Trash2 size={14} />
                   </button>
                 </div>
               </div>

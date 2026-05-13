@@ -70,9 +70,13 @@ export function CharacterRefSheet({ projectId }: Props) {
           {editing !== c.id && (
             <div className="flex gap-1 shrink-0">
               <button onClick={() => { setEditing(c.id); setEditForm({ name: c.name, description: c.description }); }}
-                className="p-1 text-zinc-500 hover:text-white"><Pencil size={13} /></button>
+                className="p-1.5 text-zinc-300 hover:text-white rounded hover:bg-zinc-800" title="Sửa">
+                <Pencil size={14} />
+              </button>
               <button onClick={() => del.mutate(c.id)}
-                className="p-1 text-zinc-500 hover:text-rose-400"><Trash2 size={13} /></button>
+                className="p-1.5 text-rose-300 hover:text-rose-200 rounded hover:bg-rose-500/15" title="Xoá">
+                <Trash2 size={14} />
+              </button>
             </div>
           )}
         </div>

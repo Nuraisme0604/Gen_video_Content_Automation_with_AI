@@ -39,10 +39,31 @@ export class ApiKeyService {
       select: {
         id: true, provider: true, type: true, label: true,
         keyMasked: true, quotaLimit: true, quotaUsed: true, isActive: true, createdAt: true,
+        lastTestedAt: true, lastTestStatus: true, lastTestError: true, lastTestLatency: true,
         // keyEncrypted is intentionally excluded from list — never sent to FE
       },
       orderBy: [{ type: 'asc' }, { provider: 'asc' }],
     });
+  }
+
+  /** Test an EXISTING stored key by id — decrypts then calls testKey + persists result.
+   *  Used by the per-row "Test" button in the UI so users can see which keys are dead. */
+  async testStoredKey(id: string) {
+    const key = await this.prisma.apiKey.findUnique({ where: { id } });
+    if (!key) throw new NotFoundException('API key not found');
+    const plaintext = this.decrypt(key.keyEncrypted);
+    const result = await this.testKey(plaintext, key.provider);
+    const status = result.ok ? 'ok' : (result.error?.includes('quota') ? 'quota' : (result.error?.includes('hợp lệ') ? 'invalid' : 'error'));
+    await this.prisma.apiKey.update({
+      where: { id },
+      data: {
+        lastTestedAt: new Date(),
+        lastTestStatus: status,
+        lastTestError: result.ok ? null : (result.error || null),
+        lastTestLatency: result.ok ? (result.latencyMs ?? null) : null,
+      },
+    });
+    return { id, ...result, status };
   }
 
   create(dto: CreateApiKeyDto) {

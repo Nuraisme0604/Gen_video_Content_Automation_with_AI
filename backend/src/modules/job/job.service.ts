@@ -11,10 +11,23 @@ export class JobService {
     return job;
   }
 
-  list(filter: { videoId?: string; queue?: string; status?: string }) {
+  async list(filter: { videoId?: string; projectId?: string; queue?: string; status?: string }) {
+    // Job has no direct projectId column — derive by looking up all video ids for the project.
+    let videoIdsForProject: string[] | undefined;
+    if (filter.projectId) {
+      const videos = await this.prisma.video.findMany({
+        where: { projectId: filter.projectId },
+        select: { id: true },
+      });
+      videoIdsForProject = videos.map(v => v.id);
+      // If the project has no videos yet, return empty quickly instead of running an
+      // unconstrained query (which would otherwise leak jobs from other projects).
+      if (videoIdsForProject.length === 0) return [];
+    }
     return this.prisma.job.findMany({
       where: {
         ...(filter.videoId ? { videoId: filter.videoId } : {}),
+        ...(videoIdsForProject ? { videoId: { in: videoIdsForProject } } : {}),
         ...(filter.queue ? { queue: filter.queue } : {}),
         ...(filter.status ? { status: filter.status } : {}),
       },

@@ -7,54 +7,123 @@
   --sidebar: #111113;
   --card: #18181b;
   --border: #27272a;
+  --muted: #a1a1aa;
 }
 
 .light {
-  --bg: #f4f4f5;
+  --bg: #f8fafc;
   --sidebar: #ffffff;
   --card: #ffffff;
-  --border: #e4e4e7;
+  --border: #e2e8f0;
+  --muted: #475569;
 }
 
 body {
   background: var(--bg);
   color: #fafafa;
   font-family: Inter, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
-/* Light mode: force all text to readable dark colors */
-html.light body                        { color: #09090b; }
-html.light .text-white                 { color: #09090b !important; }
-html.light .text-zinc-100              { color: #18181b !important; }
-html.light .text-zinc-200              { color: #27272a !important; }
-html.light .text-zinc-300              { color: #3f3f46 !important; }
-html.light .text-zinc-400              { color: #52525b !important; }
-html.light .text-zinc-500              { color: #71717a !important; }
-html.light .text-zinc-600              { color: #52525b !important; }
-/* Light mode: dark backgrounds become light */
-html.light .bg-zinc-800                { background-color: #f0f0f0 !important; }
-html.light .bg-zinc-800\/50            { background-color: #f4f4f580 !important; }
-html.light .bg-zinc-900\/50            { background-color: #f0f0f080 !important; }
-html.light .bg-zinc-700                { background-color: #e4e4e7 !important; }
-/* Light mode: borders */
-html.light .border-zinc-700            { border-color: #d4d4d8 !important; }
-html.light .border-zinc-600            { border-color: #d4d4d8 !important; }
+/* ============================================================
+   LIGHT THEME — high-contrast overrides
+   Strategy: re-map every zinc/text shade we use, plus zinc bgs,
+   plus status pills (so emerald/rose/violet stay readable on white).
+   ============================================================ */
+
+html.light body                        { color: #0f172a; }
+/* Text shades */
+html.light .text-white                 { color: #0f172a !important; }
+html.light .text-zinc-100              { color: #0f172a !important; }
+html.light .text-zinc-200              { color: #1e293b !important; }
+html.light .text-zinc-300              { color: #334155 !important; }
+html.light .text-zinc-400              { color: #475569 !important; }
+html.light .text-zinc-500              { color: #64748b !important; }
+html.light .text-zinc-600              { color: #475569 !important; }
+
+/* Brand/accent text: use 600/700 shades on white for readability */
+html.light .text-violet-200,
+html.light .text-violet-300,
+html.light .text-violet-400            { color: #6d28d9 !important; }
+html.light .text-emerald-300,
+html.light .text-emerald-400           { color: #047857 !important; }
+html.light .text-rose-200,
+html.light .text-rose-300,
+html.light .text-rose-400              { color: #be123c !important; }
+html.light .text-amber-300,
+html.light .text-amber-400             { color: #b45309 !important; }
+
+/* Backgrounds: dark zinc → light slate */
+html.light .bg-zinc-800                { background-color: #f1f5f9 !important; }
+html.light .bg-zinc-800\/30            { background-color: #f1f5f966 !important; }
+html.light .bg-zinc-800\/40            { background-color: #f1f5f980 !important; }
+html.light .bg-zinc-800\/50,
+html.light .bg-zinc-800\/60            { background-color: #f1f5f9bf !important; }
+html.light .bg-zinc-900\/40,
+html.light .bg-zinc-900\/50            { background-color: #f8fafcbf !important; }
+html.light .bg-zinc-700                { background-color: #e2e8f0 !important; }
+
+/* Tinted overlays — accent /10, /15, /20 keep their hue but render better */
+html.light .bg-violet-500\/10,
+html.light .bg-violet-500\/15,
+html.light .bg-violet-500\/20,
+html.light .bg-violet-600\/20,
+html.light .bg-violet-600\/30          { background-color: #ddd6fe !important; }
+html.light .bg-emerald-500\/10,
+html.light .bg-emerald-500\/15         { background-color: #d1fae5 !important; }
+html.light .bg-rose-500\/10,
+html.light .bg-rose-500\/15            { background-color: #fee2e2 !important; }
+html.light .bg-amber-500\/10,
+html.light .bg-amber-500\/15           { background-color: #fef3c7 !important; }
+
+/* Borders */
+html.light .border-zinc-600,
+html.light .border-zinc-700,
+html.light .border-zinc-800            { border-color: #cbd5e1 !important; }
 html.light .border-\[--border\]        { border-color: var(--border) !important; }
-html.light .divide-\[--border\] > *   { border-color: var(--border) !important; }
-/* Light mode: hover states */
-html.light .hover\:bg-zinc-800:hover   { background-color: #e4e4e7 !important; }
-html.light .hover\:bg-white\/5:hover   { background-color: #00000008 !important; }
-/* Light mode: select/input elements */
-html.light select                      { color: #09090b; background-color: #f0f0f0; }
-html.light input                       { color: #09090b; }
-html.light textarea                    { color: #09090b; }
+html.light .divide-\[--border\] > *    { border-color: var(--border) !important; }
+html.light .border-violet-500\/30,
+html.light .border-violet-500\/40      { border-color: #a78bfa !important; }
+html.light .border-emerald-500\/30     { border-color: #6ee7b7 !important; }
+html.light .border-rose-500\/30        { border-color: #fca5a5 !important; }
+html.light .border-amber-500\/30,
+html.light .border-amber-500\/40       { border-color: #fcd34d !important; }
+
+/* Hover states */
+html.light .hover\:bg-zinc-800:hover   { background-color: #e2e8f0 !important; }
+html.light .hover\:bg-zinc-700:hover   { background-color: #cbd5e1 !important; }
+html.light .hover\:bg-white\/5:hover   { background-color: rgba(15, 23, 42, 0.05) !important; }
+
+/* Form elements */
+html.light select                      { color: #0f172a; background-color: #f8fafc; }
+html.light input                       { color: #0f172a; }
+html.light input::placeholder,
+html.light textarea::placeholder       { color: #94a3b8; }
+html.light textarea                    { color: #0f172a; }
+
+/* Subtle shadow on cards for depth (light bg needs the help) */
+html.light .card                       { box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04), 0 1px 3px rgba(15, 23, 42, 0.06); }
+html.light .sidebar                    { box-shadow: 1px 0 3px rgba(15, 23, 42, 0.04); }
+
+/* ============================================================
+   Layout primitives
+   ============================================================ */
 
 .sidebar { background: var(--sidebar); border-right: 1px solid var(--border); }
-.card { background: var(--card); border: 1px solid var(--border); border-radius: 0.75rem; }
+.card    { background: var(--card); border: 1px solid var(--border); border-radius: 0.75rem; }
 
-/* Status pills */
+/* Status pills — light-mode-aware via tailwind apply */
 .pill-done    { @apply bg-emerald-500/10 text-emerald-400 text-xs px-2 py-0.5 rounded-full font-medium; }
 .pill-error   { @apply bg-rose-500/10 text-rose-400 text-xs px-2 py-0.5 rounded-full font-medium; }
 .pill-running { @apply bg-violet-500/10 text-violet-400 text-xs px-2 py-0.5 rounded-full font-medium; }
 .pill-queued  { @apply bg-amber-500/10 text-amber-400 text-xs px-2 py-0.5 rounded-full font-medium; }
 .pill-draft   { @apply bg-zinc-500/10 text-zinc-400 text-xs px-2 py-0.5 rounded-full font-medium; }
+
+/* Better scrollbars (dark + light) */
+::-webkit-scrollbar         { width: 8px; height: 8px; }
+::-webkit-scrollbar-track   { background: transparent; }
+::-webkit-scrollbar-thumb   { background: #3f3f46; border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: #52525b; }
+html.light ::-webkit-scrollbar-thumb         { background: #cbd5e1; }
+html.light ::-webkit-scrollbar-thumb:hover   { background: #94a3b8; }

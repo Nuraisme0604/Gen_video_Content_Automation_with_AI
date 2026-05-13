@@ -46,7 +46,7 @@ export const getSources = (projectId: string) =>
   api.get(`/sources/project/${projectId}`).then(r => r.data);
 
 // ---- Jobs ----
-export const getJobs = (params?: { videoId?: string; queue?: string; status?: string }) =>
+export const getJobs = (params?: { videoId?: string; projectId?: string; queue?: string; status?: string }) =>
   api.get('/jobs', { params }).then(r => r.data);
 export const getJob = (id: string) => api.get(`/jobs/${id}`).then(r => r.data);
 
@@ -86,6 +86,8 @@ export const deleteApiKey = (id: string) => api.delete(`/api-keys/${id}`).then(r
 export const resetApiKeyQuota = (id: string) => api.patch(`/api-keys/${id}/reset-quota`).then(r => r.data);
 export const testApiKey = (data: { key: string; provider: string }) =>
   api.post('/api-keys/test', data).then(r => r.data);
+export const testStoredApiKey = (id: string) =>
+  api.post(`/api-keys/${id}/test`).then(r => r.data);
 
 // ---- Notifications ----
 export const getNotifications = (projectId?: string) =>
