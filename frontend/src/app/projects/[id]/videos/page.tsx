@@ -118,8 +118,19 @@ export default function VideosPage({ params }: { params: Promise<{ id: string }>
             className="card overflow-hidden group hover:border-violet-500 transition-colors relative"
           >
             <Link href={`/projects/${projectId}/videos/${v.id}`} className="block">
-              <div className="aspect-video bg-zinc-800 flex items-center justify-center relative">
-                <Video size={24} className="text-zinc-600" />
+              <div className="aspect-video bg-zinc-800 relative overflow-hidden">
+                {v.thumbnailUrl ? (
+                  <img
+                    src={v.thumbnailUrl}
+                    alt={v.title || 'thumbnail'}
+                    loading="lazy"
+                    className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                  />
+                ) : (
+                  <div className="w-full h-full flex items-center justify-center">
+                    <Video size={24} className="text-zinc-600" />
+                  </div>
+                )}
                 <div className="absolute bottom-1 right-1">
                   <span className={cn('pill-draft', statusColor(v.status) === 'text-emerald-500' ? 'pill-done' : '')}>
                     {statusLabel(v.status)}

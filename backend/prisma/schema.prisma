@@ -32,6 +32,8 @@ model Project {
   imageModel      String  @default("pexels-stock")
   videoProvider   String  @default("local")
   videoModel      String  @default("slideshow")
+  /// Custom system/base prompt prepended to AI script generation. Null = use built-in director template.
+  scriptBasePrompt String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
@@ -56,6 +58,10 @@ model Video {
   youtubeVideoId String?
   totalCostUsd   Float     @default(0)
   errorMsg       String?
+  /// "master" = single assembled mp4, "clips" = per-scene mp4s only (no assembly)
+  outputMode        String  @default("master")
+  /// Target total duration in seconds (for clips mode — used by AI to plan scene count)
+  targetDurationSec Int?
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
   publishedAt    DateTime?

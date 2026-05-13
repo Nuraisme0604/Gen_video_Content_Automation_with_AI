@@ -290,7 +290,11 @@ def process_video_pipeline(manifest: RenderManifest):
         if completed_count < len(manifest.scenes):
             logger.warning(f"[{video_id}] Only {completed_count}/{len(manifest.scenes)} scenes completed — continuing with partial video")
 
-        # 6. Assemble video
+        # 6. Assemble master video (always)
+        master_video_key = None
+        thumbnail_key = None
+        master_video_path = os.path.join(final_output_dir, f"master_video_{video_id}.mp4")
+
         logger.info(f"[{video_id}] Assembling video...")
         assemble_master_video(str(video_id))
         generate_subtitles(str(video_id))
@@ -305,7 +309,6 @@ def process_video_pipeline(manifest: RenderManifest):
             extract_tiktok_clips(str(video_id), manifest.highlights, title=manifest.title)
 
         # 8. Upload to YouTube (returns empty string if creds missing or upload fails)
-        master_video_path = os.path.join(final_output_dir, f"master_video_{video_id}.mp4")
         seo = manifest.seo or {}
         youtube_url = upload_to_youtube(
             video_path=master_video_path,
@@ -314,26 +317,44 @@ def process_video_pipeline(manifest: RenderManifest):
             tags=seo.get("tags", manifest.seo_keywords),
         )
 
-        # 9. Upload master video to MinIO so FE can play it
-        master_video_key = None
+        # 9. Upload master video + thumbnail + per-scene clips to MinIO.
+        # Per-scene clips are ALWAYS uploaded so users can download individual scenes
+        # for external editing (CapCut/Premiere/etc.) in addition to the master.
         try:
             from storage import upload_file as s3_upload
             if os.path.exists(master_video_path):
                 master_video_key = s3_upload(master_video_path, f"videos/{video_id}/master.mp4", "video/mp4")
+            thumb_local = os.path.join(final_output_dir, f"thumb_{video_id}.jpg")
+            if os.path.exists(thumb_local):
+                thumbnail_key = s3_upload(thumb_local, f"videos/{video_id}/thumb.jpg", "image/jpeg")
+            # Upload each scene's video clip to videos/{id}/clips/clip_{idx:03d}.mp4
+            for idx, scene in enumerate(manifest.scenes):
+                local_path = os.path.join(assets_dir, f"scene_{scene.scene_id}_video.mp4")
+                if os.path.exists(local_path):
+                    clip_key = f"videos/{video_id}/clips/clip_{idx:03d}.mp4"
+                    s3_key = s3_upload(local_path, clip_key, "video/mp4")
+                    if s3_key:
+                        with SessionLocal() as db:
+                            db.execute(
+                                text('UPDATE scenes SET "videoKey" = :k, "updatedAt" = NOW() WHERE "videoId" = :v AND "sceneIndex" = :i'),
+                                {"k": clip_key, "v": video_id, "i": idx},
+                            )
+                            db.commit()
         except Exception as e:
             logger.error(f"[{video_id}] MinIO upload failed: {e}")
 
-        # 10. Update DB status (include masterVideoKey)
+        # 10. Update DB status (include masterVideoKey + thumbnailKey)
         final_status = "uploaded" if youtube_url else "rendered"
         with SessionLocal() as db:
             db.execute(
-                text('UPDATE videos SET status = :status, "totalCostUsd" = :cost, "youtubeVideoId" = :yt, "masterVideoKey" = :mvk, "durationSec" = :dur, "updatedAt" = NOW() WHERE id = :id'),
+                text('UPDATE videos SET status = :status, "totalCostUsd" = :cost, "youtubeVideoId" = :yt, "masterVideoKey" = :mvk, "thumbnailKey" = :tk, "durationSec" = :dur, "updatedAt" = NOW() WHERE id = :id'),
                 {
                     "id": video_id,
                     "status": final_status,
                     "cost": total_cost,
                     "yt": youtube_url.split("v=")[-1] if youtube_url else None,
                     "mvk": master_video_key,
+                    "tk": thumbnail_key,
                     "dur": len(manifest.scenes) * int(os.getenv("SCENE_VIDEO_SECONDS", "8")),
                 },
             )
@@ -347,6 +368,7 @@ def process_video_pipeline(manifest: RenderManifest):
                 json={
                     "videoId": video_id,
                     "masterVideoKey": master_video_key,
+                    "thumbnailKey": thumbnail_key,
                     "durationSec": len(manifest.scenes) * int(os.getenv("SCENE_VIDEO_SECONDS", "8")),
                     "totalCostUsd": total_cost,
                     "success": True,

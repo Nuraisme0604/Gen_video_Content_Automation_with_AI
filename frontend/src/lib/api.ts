@@ -19,6 +19,7 @@ export const getVideos = (projectId?: string) =>
   api.get('/videos', { params: { projectId } }).then(r => r.data);
 export const getVideo = (id: string) => api.get(`/videos/${id}`).then(r => r.data);
 export const getVideoPreviewUrl = (id: string) => api.get(`/videos/${id}/preview-url`).then(r => r.data);
+export const getVideoClips = (id: string) => api.get(`/videos/${id}/clips`).then(r => r.data);
 export const updateVideo = (id: string, data: { title?: string; status?: string }) =>
   api.patch(`/videos/${id}`, data).then(r => r.data);
 export const deleteVideo = (id: string) => api.delete(`/videos/${id}`).then(r => r.data);
@@ -30,10 +31,17 @@ export const regenerateScene = (id: string) => api.post(`/scenes/${id}/regenerat
 export const updateScene = (id: string, data: any) => api.patch(`/scenes/${id}`, data).then(r => r.data);
 
 // ---- Sources ----
-export const createYoutubeSource = (data: { projectId: string; url: string }) =>
+export type AspectRatio = '16:9' | '9:16' | '1:1';
+export type VideoConfig = {
+  sceneCount?: number;
+  targetDurationSec?: number;
+  aspectRatio?: AspectRatio;
+};
+export const createYoutubeSource = (data: { projectId: string; url: string } & VideoConfig) =>
   api.post('/sources/youtube', data).then(r => r.data);
-export const createManualSource = (data: { projectId: string; title: string; script: string; disclaimerAccepted?: boolean }) =>
-  api.post('/sources/manual', data).then(r => r.data);
+export const createManualSource = (
+  data: { projectId: string; title: string; script: string; disclaimerAccepted?: boolean } & VideoConfig,
+) => api.post('/sources/manual', data).then(r => r.data);
 export const getSources = (projectId: string) =>
   api.get(`/sources/project/${projectId}`).then(r => r.data);
 

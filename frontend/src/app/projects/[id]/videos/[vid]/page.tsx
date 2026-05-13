@@ -2,7 +2,7 @@
 import { use, useState, useCallback, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { getVideo, getVideoPreviewUrl, regenerateScene, updateVideo, deleteVideo } from '@/lib/api';
+import { getVideo, getVideoPreviewUrl, getVideoClips, regenerateScene, updateVideo, deleteVideo } from '@/lib/api';
 import { useJobSocket } from '@/hooks/useJobSocket';
 import { statusLabel, statusColor, cn } from '@/lib/utils';
 import { RefreshCw, AlertCircle, CheckCircle2, Clock, Volume2, Pencil, Save, Trash2, Download, X } from 'lucide-react';
@@ -18,7 +18,15 @@ export default function VideoDetailPage({ params }: { params: Promise<{ id: stri
   const [titleDraft, setTitleDraft] = useState('');
 
   const { data: video } = useQuery({ queryKey: ['video', vid], queryFn: () => getVideo(vid) });
-  const { data: preview } = useQuery({ queryKey: ['preview', vid], queryFn: () => getVideoPreviewUrl(vid) });
+  const { data: preview } = useQuery({
+    queryKey: ['preview', vid],
+    queryFn: () => getVideoPreviewUrl(vid),
+  });
+  const { data: clips = [] } = useQuery({
+    queryKey: ['clips', vid],
+    queryFn: () => getVideoClips(vid),
+    refetchInterval: video?.status === 'rendering' ? 5000 : false,
+  });
 
   // Sync titleDraft with video.title once loaded
   useEffect(() => {
@@ -174,7 +182,53 @@ export default function VideoDetailPage({ params }: { params: Promise<{ id: stri
         </div>
       )}
 
-      {/* Scene list */}
+      {/* Per-scene clips grid — always rendered for any video with scenes.
+          User can download individual scene MP4s to edit/re-arrange in external tools. */}
+      {(clips as any[]).length > 0 && (
+        <div className="card p-5 mb-5">
+          <div className="flex items-center justify-between mb-3">
+            <div>
+              <h3 className="font-medium text-sm">Clip từng cảnh ({(clips as any[]).length})</h3>
+              <p className="text-xs text-zinc-500 mt-0.5">
+                Download từng cảnh riêng để edit/ghép bằng tool ngoài (CapCut, Premiere, ...).
+              </p>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+            {(clips as any[]).map((c: any) => (
+              <div key={c.id} className="bg-zinc-900 border border-zinc-800 rounded-lg overflow-hidden hover:border-violet-500 transition-colors">
+                <div className="aspect-video bg-black relative">
+                  {c.clipUrl ? (
+                    <video src={c.clipUrl} controls preload="metadata"
+                      className="w-full h-full object-cover" />
+                  ) : c.imageUrl ? (
+                    <img src={c.imageUrl} alt="" className="w-full h-full object-cover opacity-50" />
+                  ) : (
+                    <div className="w-full h-full flex items-center justify-center text-xs text-zinc-600">
+                      {c.status === 'rendering' ? '⏳ Đang render' : c.status === 'failed' ? '❌ Lỗi' : 'Pending'}
+                    </div>
+                  )}
+                </div>
+                <div className="p-2 flex items-center justify-between text-xs">
+                  <span className="font-mono text-zinc-400">#{String(c.sceneIndex + 1).padStart(3, '0')}</span>
+                  {c.clipUrl ? (
+                    <a href={c.clipUrl} download={`clip_${String(c.sceneIndex + 1).padStart(3, '0')}.mp4`}
+                      className="flex items-center gap-1 text-violet-400 hover:text-violet-300"
+                      title="Tải clip">
+                      <Download size={12} />
+                    </a>
+                  ) : (
+                    <span className="text-zinc-600">{c.status}</span>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Scene list with prompt + status — for editing/regenerating individual scenes */}
       <div className="space-y-3">
         {scenes.map((s: any) => (
           <div key={s.id} className="card p-4">

@@ -89,14 +89,37 @@ export default function FramesPage({ params }: { params: Promise<{ id: string }>
       {isLoading && <p className="text-zinc-500 text-sm">Đang tải...</p>}
 
       <div className="space-y-6">
-        {frames.map((frame: any) => (
-          <div key={frame.id} className="card p-5">
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="font-medium">{frame.name}</h2>
-              <button onClick={() => { if (confirm('Xoá frame này?')) del.mutate(frame.id); }}
-                className="text-zinc-500 hover:text-rose-400 p-1"><Trash2 size={14} /></button>
+        {frames.map((frame: any) => {
+          // Cover = first image that's a valid http/data URL
+          const coverImg = (frame.images || []).find((i: any) =>
+            i.imageKey?.startsWith('http') || i.imageKey?.startsWith('data:image')
+          );
+          return (
+          <div key={frame.id} className="card overflow-hidden">
+            {/* Cover thumbnail — first image, large */}
+            <div className="aspect-[16/5] bg-zinc-800 relative overflow-hidden">
+              {coverImg ? (
+                <img src={coverImg.imageKey} alt={frame.name}
+                  className="w-full h-full object-cover" loading="lazy" />
+              ) : (
+                <div className="w-full h-full flex items-center justify-center">
+                  <Image size={32} className="text-zinc-700" />
+                </div>
+              )}
+              <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-transparent pointer-events-none" />
+              <div className="absolute bottom-2 left-3 right-3 flex items-end justify-between">
+                <div>
+                  <h2 className="font-medium text-white drop-shadow">{frame.name}</h2>
+                  <div className="text-xs text-zinc-300 drop-shadow">{frame.images?.length || 0} ảnh</div>
+                </div>
+                <button onClick={() => { if (confirm('Xoá frame này?')) del.mutate(frame.id); }}
+                  className="text-zinc-300 hover:text-rose-400 p-1.5 rounded bg-black/30 hover:bg-black/60">
+                  <Trash2 size={14} />
+                </button>
+              </div>
             </div>
 
+            <div className="p-5">
             {/* Image grid */}
             <div className="flex flex-wrap gap-3 mb-4">
               {frame.images.map((img: any) => {
@@ -159,8 +182,10 @@ export default function FramesPage({ params }: { params: Promise<{ id: string }>
             <p className="text-xs text-zinc-600 mt-3">
               💡 Frame này là thư viện ảnh tham chiếu. Pipeline sẽ dùng ảnh trong frame làm initial frame cho Veo3.
             </p>
+            </div>
           </div>
-        ))}
+          );
+        })}
       </div>
 
       {/* New frame modal — render after */}

@@ -8,6 +8,20 @@ import { CreateYoutubeSourceDto } from './dto/create-youtube-source.dto';
 import { CreateManualSourceDto } from './dto/create-manual-source.dto';
 import { firstValueFrom } from 'rxjs';
 
+type VideoConfig = {
+  sceneCount?: number;
+  targetDurationSec?: number;
+  aspectRatio?: '16:9' | '9:16' | '1:1';
+};
+
+function pickVideoConfig(dto: VideoConfig): VideoConfig {
+  return {
+    sceneCount: dto.sceneCount,
+    targetDurationSec: dto.targetDurationSec,
+    aspectRatio: dto.aspectRatio,
+  };
+}
+
 @Injectable()
 export class SourceService {
   constructor(
@@ -22,30 +36,40 @@ export class SourceService {
       throw new BadRequestException('Invalid YouTube URL');
     }
 
+    const videoConfig = pickVideoConfig(dto);
     const source = await this.prisma.apiSource.create({
       data: {
         projectId: dto.projectId,
         type: 'YOUTUBE',
         inputUrl: dto.url,
         status: 'pending',
+        metadata: videoConfig as any,
       },
     });
 
     const job = await this.transcriptQueue.add(
       'fetch-transcript',
-      { sourceId: source.id, url: dto.url },
+      { sourceId: source.id, url: dto.url, ...videoConfig },
       { attempts: 3, backoff: { type: 'exponential', delay: 5000 } },
     );
 
     await this.prisma.apiSource.update({
       where: { id: source.id },
-      data: { status: 'fetching', metadata: { bullJobId: job.id } as any },
+      data: { status: 'fetching', metadata: { ...videoConfig, bullJobId: job.id } as any },
     });
 
     return { sourceId: source.id, jobId: job.id };
   }
 
   async createManual(dto: CreateManualSourceDto) {
+    const videoConfig = pickVideoConfig(dto);
+    const project = await this.prisma.project.findUnique({
+      where: { id: dto.projectId },
+      select: {
+        niche: true, language: true, visualStyle: true,
+        description: true, scriptBasePrompt: true,
+      },
+    });
     const source = await this.prisma.apiSource.create({
       data: {
         projectId: dto.projectId,
@@ -53,6 +77,7 @@ export class SourceService {
         rawScript: dto.script,
         title: dto.title,
         status: 'fetched',
+        metadata: videoConfig as any,
       },
     });
 
@@ -71,6 +96,14 @@ export class SourceService {
         narration_script: dto.script,
         thumbnail_text: dto.title,
         disclaimer_accepted: dto.disclaimerAccepted,
+        scene_count: videoConfig.sceneCount,
+        target_duration_sec: videoConfig.targetDurationSec,
+        aspect_ratio: videoConfig.aspectRatio,
+        channel_niche: project?.niche,
+        language: project?.language,
+        visual_style: project?.visualStyle,
+        project_description: project?.description,
+        script_base_prompt: project?.scriptBasePrompt,
       }, { timeout: 60000 }),
     ).catch((err) => {
       const status = err?.response?.status;

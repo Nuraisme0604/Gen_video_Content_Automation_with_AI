@@ -2,7 +2,7 @@
 import { useState, use, useEffect, useRef } from 'react';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { createYoutubeSource, createManualSource, getProject } from '@/lib/api';
-import { AlertTriangle, Youtube, PenLine, Newspaper, BookOpen, Save, Check } from 'lucide-react';
+import { AlertTriangle, Youtube, PenLine, Newspaper, BookOpen, Save, Check, Film, Clock, Ratio } from 'lucide-react';
 import { toast } from 'sonner';
 import { VoiceConfigPanel } from '@/components/video/VoiceConfigPanel';
 import { CharacterRefSheet } from '@/components/video/CharacterRefSheet';
@@ -16,12 +16,33 @@ const TABS = [
   { id: 'manual',  label: '✍️ Tự nhập', icon: PenLine },
 ];
 
+type AspectRatio = '16:9' | '9:16' | '1:1';
 type FormState = {
   tab: string; url: string; title: string; script: string;
   description: string; articleUrl: string; disclaimerAccepted: boolean;
+  sceneCount: number | '';
+  targetDurationSec: number | '';
+  aspectRatio: AspectRatio | '';
 };
 
-const EMPTY: FormState = { tab: 'youtube', url: '', title: '', script: '', description: '', articleUrl: '', disclaimerAccepted: false };
+const EMPTY: FormState = {
+  tab: 'youtube', url: '', title: '', script: '', description: '', articleUrl: '', disclaimerAccepted: false,
+  sceneCount: '', targetDurationSec: '', aspectRatio: '',
+};
+
+const DURATION_PRESETS: { label: string; value: number }[] = [
+  { label: '30 giây', value: 30 },
+  { label: '1 phút',  value: 60 },
+  { label: '2 phút',  value: 120 },
+  { label: '3 phút',  value: 180 },
+  { label: '5 phút',  value: 300 },
+];
+
+const ASPECT_OPTIONS: { label: string; value: AspectRatio; hint: string }[] = [
+  { label: '16:9', value: '16:9', hint: 'Ngang (YouTube)' },
+  { label: '9:16', value: '9:16', hint: 'Dọc (Shorts/TikTok)' },
+  { label: '1:1',  value: '1:1',  hint: 'Vuông (IG/FB)' },
+];
 
 export default function CreatePage({ params }: { params: Promise<{ id: string }> }) {
   const { id: projectId } = use(params);
@@ -66,8 +87,14 @@ export default function CreatePage({ params }: { params: Promise<{ id: string }>
 
   const errMsg = (e: any) => e?.response?.data?.message || e?.message || 'Lỗi không xác định';
 
+  const videoCfg = () => ({
+    sceneCount: form.sceneCount === '' ? undefined : Number(form.sceneCount),
+    targetDurationSec: form.targetDurationSec === '' ? undefined : Number(form.targetDurationSec),
+    aspectRatio: form.aspectRatio === '' ? undefined : form.aspectRatio as AspectRatio,
+  });
+
   const ytMutation = useMutation({
-    mutationFn: () => createYoutubeSource({ projectId, url: form.url }),
+    mutationFn: () => createYoutubeSource({ projectId, url: form.url, ...videoCfg() }),
     onSuccess: (data: any) => {
       setActiveSourceId(data.sourceId || data.id);
       localStorage.removeItem(draftKey);
@@ -83,6 +110,7 @@ export default function CreatePage({ params }: { params: Promise<{ id: string }>
       title: form.title || (form.articleUrl ? `Article: ${form.articleUrl.slice(0,40)}` : 'Untitled'),
       script: form.script,
       disclaimerAccepted: form.disclaimerAccepted || form.tab === 'story' || form.tab === 'manual',
+      ...videoCfg(),
     }),
     onSuccess: (data: any) => {
       setActiveSourceId(data.id);
@@ -98,11 +126,17 @@ export default function CreatePage({ params }: { params: Promise<{ id: string }>
     else manualMutation.mutate();
   };
 
+  const videoCfgIncomplete =
+    form.sceneCount === '' || Number(form.sceneCount) < 3 || Number(form.sceneCount) > 20 ||
+    form.targetDurationSec === '' || Number(form.targetDurationSec) < 15 ||
+    form.aspectRatio === '';
+
   const submitDisabled =
     (form.tab === 'youtube' && (!form.url || !form.disclaimerAccepted)) ||
     (form.tab === 'article' && !form.articleUrl) ||
     (form.tab === 'story' && !form.script) ||
     (form.tab === 'manual' && (!form.title || !form.script)) ||
+    videoCfgIncomplete ||
     ytMutation.isPending || manualMutation.isPending;
 
   return (
@@ -181,6 +215,74 @@ export default function CreatePage({ params }: { params: Promise<{ id: string }>
             <textarea value={form.script} onChange={e => set({ script: e.target.value })}
               placeholder="Dán kịch bản vào đây..." rows={8}
               className="w-full bg-zinc-800 rounded-lg px-3 py-2 text-sm outline-none border border-zinc-700 focus:border-violet-500 font-mono resize-none" />
+          </div>
+        )}
+
+      </div>
+
+      {/* Video config — required for ALL tabs (số scenes / thời lượng / aspect ratio) */}
+      <div className="card p-5 mb-4">
+        <div className="text-xs font-medium text-zinc-400 mb-3 uppercase tracking-wider">
+          Cấu hình video <span className="text-rose-400 normal-case">*</span>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div>
+            <label className="flex items-center gap-1.5 text-xs text-zinc-400 mb-1.5">
+              <Film size={12} /> Số scenes (3–20)
+            </label>
+            <input
+              type="number" min={3} max={20}
+              value={form.sceneCount}
+              onChange={e => set({ sceneCount: e.target.value === '' ? '' : Math.max(3, Math.min(20, parseInt(e.target.value) || 0)) })}
+              placeholder="VD: 8"
+              className="w-full bg-zinc-800 rounded-lg px-3 py-2 text-sm outline-none border border-zinc-700 focus:border-violet-500"
+            />
+          </div>
+
+          <div>
+            <label className="flex items-center gap-1.5 text-xs text-zinc-400 mb-1.5">
+              <Clock size={12} /> Tổng thời lượng
+            </label>
+            <select
+              value={form.targetDurationSec}
+              onChange={e => set({ targetDurationSec: e.target.value === '' ? '' : parseInt(e.target.value) })}
+              className="w-full bg-zinc-800 rounded-lg px-3 py-2 text-sm outline-none border border-zinc-700 focus:border-violet-500"
+            >
+              <option value="">— Chọn thời lượng —</option>
+              {DURATION_PRESETS.map(p => (
+                <option key={p.value} value={p.value}>{p.label}</option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <label className="flex items-center gap-1.5 text-xs text-zinc-400 mb-1.5">
+              <Ratio size={12} /> Tỉ lệ khung hình
+            </label>
+            <div className="flex gap-1.5">
+              {ASPECT_OPTIONS.map(a => (
+                <button
+                  key={a.value}
+                  type="button"
+                  onClick={() => set({ aspectRatio: a.value })}
+                  title={a.hint}
+                  className={`flex-1 px-2 py-2 rounded-lg text-xs font-medium border transition-colors ${
+                    form.aspectRatio === a.value
+                      ? 'bg-violet-600 border-violet-500 text-white'
+                      : 'bg-zinc-800 border-zinc-700 text-zinc-400 hover:text-white'
+                  }`}
+                >
+                  {a.label}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        {form.sceneCount !== '' && form.targetDurationSec !== '' && Number(form.sceneCount) > 0 && (
+          <div className="text-xs text-zinc-500 mt-3">
+            ≈ {(Number(form.targetDurationSec) / Number(form.sceneCount)).toFixed(1)}s / scene
           </div>
         )}
       </div>

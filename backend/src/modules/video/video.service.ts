@@ -9,12 +9,24 @@ export class VideoService {
     private config: ConfigService,
   ) {}
 
-  list(projectId?: string) {
-    return this.prisma.video.findMany({
+  private publicUrl(key: string | null | undefined): string | null {
+    if (!key) return null;
+    const endpoint = (this.config.get('S3_PUBLIC_ENDPOINT') || this.config.get('S3_ENDPOINT', 'http://minio:9000'))
+      .replace('minio:9000', 'localhost:9000');
+    const bucket = this.config.get('S3_BUCKET_ASSETS', 'assets');
+    return `${endpoint}/${bucket}/${key}`;
+  }
+
+  async list(projectId?: string) {
+    const videos = await this.prisma.video.findMany({
       where: projectId ? { projectId } : {},
       include: { _count: { select: { scenes: true } } },
       orderBy: { createdAt: 'desc' },
     });
+    return videos.map((v) => ({
+      ...v,
+      thumbnailUrl: this.publicUrl(v.thumbnailKey),
+    }));
   }
 
   async get(id: string) {
@@ -28,12 +40,29 @@ export class VideoService {
 
   async getPreviewUrl(id: string) {
     const v = await this.get(id);
-    if (!v.masterVideoKey) return { url: null };
-    // Public URL — replace internal Docker hostname with browser-accessible localhost
-    const endpoint = (this.config.get('S3_PUBLIC_ENDPOINT') || this.config.get('S3_ENDPOINT', 'http://minio:9000'))
-      .replace('minio:9000', 'localhost:9000');
-    const bucket = this.config.get('S3_BUCKET_ASSETS', 'assets');
-    return { url: `${endpoint}/${bucket}/${v.masterVideoKey}` };
+    return { url: this.publicUrl(v.masterVideoKey) };
+  }
+
+  async getClips(id: string) {
+    const scenes = await this.prisma.scene.findMany({
+      where: { videoId: id },
+      orderBy: { sceneIndex: 'asc' },
+      select: {
+        id: true,
+        sceneIndex: true,
+        videoKey: true,
+        imageKey: true,
+        durationSec: true,
+        status: true,
+        voiceoverText: true,
+        errorMessage: true,
+      },
+    });
+    return scenes.map((s) => ({
+      ...s,
+      clipUrl: this.publicUrl(s.videoKey),
+      imageUrl: this.publicUrl(s.imageKey),
+    }));
   }
 
   update(id: string, data: Record<string, any>) {

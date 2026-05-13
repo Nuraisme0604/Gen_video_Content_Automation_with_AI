@@ -136,6 +136,23 @@ def assemble_master_video(video_id: str):
 
     logger.info(f"[Video {video_id}] ✅ Hoàn thành xuất video: {output_path}")
 
+    # 6. Auto-thumbnail: extract frame at 1s, resize 640x360
+    thumb_path = os.path.join(output_dir, f"thumb_{video_id}.jpg")
+    try:
+        import subprocess
+        r = subprocess.run(
+            ["ffmpeg", "-y", "-ss", "1", "-i", output_path, "-vframes", "1",
+             "-vf", "scale=640:360:force_original_aspect_ratio=increase,crop=640:360",
+             "-q:v", "4", thumb_path],
+            capture_output=True, timeout=30,
+        )
+        if r.returncode == 0 and os.path.exists(thumb_path):
+            logger.info(f"[Video {video_id}] ✅ Thumbnail: {thumb_path}")
+        else:
+            logger.warning(f"[Video {video_id}] ffmpeg thumb failed: {r.stderr.decode()[:200]}")
+    except Exception as e:
+        logger.warning(f"[Video {video_id}] Thumbnail extraction failed: {e}")
+
 
 def generate_subtitles(video_id: str):
     """

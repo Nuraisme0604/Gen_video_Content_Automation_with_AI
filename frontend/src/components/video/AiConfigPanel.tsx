@@ -187,6 +187,23 @@ export function AiConfigPanel({ projectId, config, onChange }: Props) {
         );
       })}
 
+      <div className="pt-3 border-t border-zinc-800">
+        <div className="text-xs text-zinc-400 mb-1.5 font-medium">
+          Prompt nền cho AI sinh kịch bản <span className="text-zinc-600 font-normal">(tuỳ chọn)</span>
+        </div>
+        <textarea
+          value={config.scriptBasePrompt || ''}
+          onChange={e => onChange({ scriptBasePrompt: e.target.value })}
+          onBlur={e => save.mutate({ scriptBasePrompt: e.target.value })}
+          rows={4}
+          placeholder="Để trống = dùng director template mặc định (gồm niche, language, visual style của project). Viết riêng nếu muốn override toàn bộ — VD: 'Bạn là biên kịch chuyên kể chuyện ma Việt Nam thập niên 80, tone u ám, narrative ngôi thứ nhất...'"
+          className="w-full bg-zinc-800 rounded-lg px-3 py-2 text-sm outline-none border border-zinc-700 focus:border-violet-500 resize-y font-mono text-[12px] leading-relaxed"
+        />
+        <p className="text-[11px] text-zinc-600 mt-1.5">
+          💡 Default sẽ tự lắp niche/language/visual style + ràng buộc JSON output. Override khi muốn giọng văn / persona riêng.
+        </p>
+      </div>
+
       <p className="text-[11px] text-zinc-600 pt-2 border-t border-zinc-800">
         💡 Provider có (free) chạy không cần key. Còn lại cần thêm key tương ứng trong "Nguồn API".
       </p>

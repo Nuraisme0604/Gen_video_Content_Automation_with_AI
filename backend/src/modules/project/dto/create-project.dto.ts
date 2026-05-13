@@ -19,4 +19,5 @@ export class CreateProjectDto {
   @IsOptional() @IsString() imageModel?: string;
   @IsOptional() @IsString() videoProvider?: string;
   @IsOptional() @IsString() videoModel?: string;
+  @IsOptional() @IsString() scriptBasePrompt?: string;
 }

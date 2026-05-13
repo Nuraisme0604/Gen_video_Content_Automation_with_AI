@@ -17,6 +17,8 @@ export class VideoController {
 
   @Get(':id/preview-url') previewUrl(@Param('id') id: string) { return this.svc.getPreviewUrl(id); }
 
+  @Get(':id/clips') clips(@Param('id') id: string) { return this.svc.getClips(id); }
+
   @Patch(':id') update(@Param('id') id: string, @Body() body: Record<string, any>) { return this.svc.update(id, body); }
 
   @Delete(':id') remove(@Param('id') id: string) { return this.svc.remove(id); }
