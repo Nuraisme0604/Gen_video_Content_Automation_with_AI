@@ -3,11 +3,12 @@ import { useQuery } from '@tanstack/react-query';
 import { getJobs } from '@/lib/api';
 
 export function StatusBar() {
-  const { data: jobs = [] } = useQuery({
+  const { data } = useQuery({
     queryKey: ['jobs', 'active'],
     queryFn: () => getJobs({ status: 'active' }),
     refetchInterval: 5000,
   });
+  const jobs = data?.items || [];
 
   const running = jobs.filter((j: any) => j.status === 'active' || j.status === 'queued').length;
 

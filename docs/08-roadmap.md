@@ -65,7 +65,7 @@ Mục tiêu: tool không vỡ khi quota hết, lỗi rõ ràng, retry thông min
 
 Đây là phần market tool nào cũng có; thiếu = công cụ "demo" chứ không phải "tool dùng được".
 
-### 2.1 SubtitleEditor (Module 1.4 design.md)
+### 2.1 SubtitleEditor (Module 1.4 07-ux-design.md)
 - File mới: [frontend/src/components/video/SubtitleEditor.tsx]
   - Render `.srt` cues thành list, mỗi cue: `start | end | textarea`
   - Auto-save debounce 1s → `PATCH /api/v1/scenes/:id/subtitle`

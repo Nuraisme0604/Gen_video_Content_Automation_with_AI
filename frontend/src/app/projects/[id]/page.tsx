@@ -10,7 +10,8 @@ export default function ProjectPage({ params }: { params: Promise<{ id: string }
   const { id } = use(params);
   const { data: project } = useQuery({ queryKey: ['project', id], queryFn: () => getProject(id) });
   const { data: videos = [] } = useQuery({ queryKey: ['videos', id], queryFn: () => getVideos(id) });
-  const { data: jobs = [] } = useQuery({ queryKey: ['jobs', id], queryFn: () => getJobs() });
+  const { data: jobsPage } = useQuery({ queryKey: ['jobs', id], queryFn: () => getJobs({ projectId: id }) });
+  const jobs = jobsPage?.items || [];
 
   const running = jobs.filter((j: any) => j.status === 'active').length;
   const totalCost = videos.reduce((acc: number, v: any) => acc + (v.totalCostUsd || 0), 0);

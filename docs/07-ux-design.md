@@ -1229,7 +1229,7 @@ POST   /api/v1/webhooks/worker/render-complete
 
 ## 13. Implementation Checklist (master)
 
-> Mỗi item link tới phase trong [plan.md](plan.md). `[x]` = done, `[~]` = partial, `[ ]` = todo.
+> Mỗi item link tới phase trong [08-roadmap.md](08-roadmap.md). `[x]` = done, `[~]` = partial, `[ ]` = todo.
 
 ### Layout & Navigation
 - [x] TopBar với project switcher + theme + notification bell

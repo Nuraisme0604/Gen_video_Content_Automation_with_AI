@@ -1,9 +1,14 @@
 'use client';
 import { use, useState, useRef } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { getFrames, createFrame, deleteFrame, addFrameImage, removeFrameImage } from '@/lib/api';
-import { Plus, Trash2, Image, X, Upload, Link as LinkIcon } from 'lucide-react';
+import { getFrames, createFrame, deleteFrame, addFrameImage, removeFrameImage, reorderFrameImages } from '@/lib/api';
+import { Plus, Trash2, Image, X, Upload, Link as LinkIcon, GripVertical } from 'lucide-react';
 import { toast } from 'sonner';
+import {
+  DndContext, closestCenter, DragEndEvent, PointerSensor, useSensor, useSensors,
+} from '@dnd-kit/core';
+import { SortableContext, arrayMove, rectSortingStrategy, useSortable } from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
 
 const MAX_UPLOAD_MB = 3;
 const ACCEPT_IMAGE = 'image/png,image/jpeg,image/webp,image/gif';
@@ -54,6 +59,32 @@ export default function FramesPage({ params }: { params: Promise<{ id: string }>
     mutationFn: removeFrameImage,
     onSuccess: () => qc.invalidateQueries({ queryKey: ['frames', projectId] }),
   });
+
+  const reorder = useMutation({
+    mutationFn: ({ frameId, orderedIds }: { frameId: string; orderedIds: string[] }) =>
+      reorderFrameImages(frameId, orderedIds),
+    onError: (e: any) => {
+      qc.invalidateQueries({ queryKey: ['frames', projectId] });
+      toast.error('Sắp xếp thất bại', { description: errMsg(e) });
+    },
+  });
+
+  // Touch-friendly sensor — require 5px movement so quick taps don't fire drag.
+  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
+
+  const onDragEnd = (frameId: string, images: any[]) => (event: DragEndEvent) => {
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+    const oldIdx = images.findIndex(i => i.id === active.id);
+    const newIdx = images.findIndex(i => i.id === over.id);
+    if (oldIdx < 0 || newIdx < 0) return;
+    const newImages = arrayMove(images, oldIdx, newIdx);
+    // Optimistic update: patch cache so the UI moves instantly.
+    qc.setQueryData(['frames', projectId], (old: any) =>
+      (old as any[])?.map((f: any) => f.id === frameId ? { ...f, images: newImages } : f),
+    );
+    reorder.mutate({ frameId, orderedIds: newImages.map((i: any) => i.id) });
+  };
 
   const handleFiles = async (frameId: string, files: FileList | null) => {
     if (!files || files.length === 0) return;
@@ -121,31 +152,23 @@ export default function FramesPage({ params }: { params: Promise<{ id: string }>
             </div>
 
             <div className="p-5">
-            {/* Image grid */}
-            <div className="flex flex-wrap gap-3 mb-4">
-              {frame.images.map((img: any) => {
-                const isImage = img.imageKey?.startsWith('http') || img.imageKey?.startsWith('data:image');
-                return (
-                  <div key={img.id} className="relative group w-24 h-16 rounded-lg bg-zinc-800 overflow-hidden border border-zinc-700">
-                    {isImage ? (
-                      <img src={img.imageKey} alt="" className="w-full h-full object-cover" />
-                    ) : (
-                      <div className="w-full h-full flex items-center justify-center">
-                        <Image size={16} className="text-zinc-600" />
-                      </div>
-                    )}
-                    <button
-                      onClick={() => delImg.mutate(img.id)}
-                      className="absolute top-1 right-1 bg-black/60 rounded-full p-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
-                      <X size={10} className="text-white" />
-                    </button>
-                  </div>
-                );
-              })}
+            {/* Image grid — drag to reorder */}
+            <DndContext
+              sensors={sensors}
+              collisionDetection={closestCenter}
+              onDragEnd={onDragEnd(frame.id, frame.images)}
+            >
+              <SortableContext items={frame.images.map((i: any) => i.id)} strategy={rectSortingStrategy}>
+                <div className="flex flex-wrap gap-3 mb-4">
+                  {frame.images.map((img: any) => (
+                    <SortableImage key={img.id} img={img} onDelete={() => delImg.mutate(img.id)} />
+                  ))}
 
-              {/* Quick upload tile (click or drag-drop) */}
-              <FrameUploadTile frameId={frame.id} onFiles={(files) => handleFiles(frame.id, files)} />
-            </div>
+                  {/* Quick upload tile (click or drag-drop) — outside Sortable, not reorderable */}
+                  <FrameUploadTile frameId={frame.id} onFiles={(files) => handleFiles(frame.id, files)} />
+                </div>
+              </SortableContext>
+            </DndContext>
 
             {/* Add image inputs — 2 ways */}
             <div className="flex flex-col sm:flex-row gap-2">
@@ -210,6 +233,45 @@ export default function FramesPage({ params }: { params: Promise<{ id: string }>
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+function SortableImage({ img, onDelete }: { img: any; onDelete: () => void }) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: img.id });
+  const isImage = img.imageKey?.startsWith('http') || img.imageKey?.startsWith('data:image');
+  const style: React.CSSProperties = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.4 : 1,
+    zIndex: isDragging ? 10 : 'auto',
+  };
+  return (
+    <div
+      ref={setNodeRef}
+      style={style}
+      {...attributes}
+      {...listeners}
+      className="relative group w-24 h-16 rounded-lg bg-zinc-800 overflow-hidden border border-zinc-700 cursor-grab active:cursor-grabbing touch-none"
+    >
+      {isImage ? (
+        <img src={img.imageKey} alt="" className="w-full h-full object-cover pointer-events-none" />
+      ) : (
+        <div className="w-full h-full flex items-center justify-center">
+          <Image size={16} className="text-zinc-600" />
+        </div>
+      )}
+      {/* Drag handle indicator on hover */}
+      <div className="absolute top-1 left-1 bg-black/60 rounded p-0.5 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
+        <GripVertical size={10} className="text-white" />
+      </div>
+      <button
+        onPointerDown={(e) => e.stopPropagation()}
+        onClick={(e) => { e.stopPropagation(); onDelete(); }}
+        className="absolute top-1 right-1 bg-black/60 rounded-full p-0.5 opacity-0 group-hover:opacity-100 transition-opacity"
+      >
+        <X size={10} className="text-white" />
+      </button>
     </div>
   );
 }

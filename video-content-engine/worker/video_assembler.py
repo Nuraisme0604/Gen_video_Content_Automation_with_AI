@@ -1,5 +1,6 @@
 import os
 import logging
+import random
 import shlex
 import subprocess
 from moviepy.editor import VideoFileClip, AudioFileClip, concatenate_videoclips, CompositeAudioClip, afx
@@ -103,7 +104,23 @@ def assemble_master_video(video_id: str):
                 # Fallback: simple loop nếu fadein/fadeout fail
                 bgm_clip = afx.audio_loop(bgm_clip, duration=master_video.duration)
         else:
-            bgm_clip = bgm_clip.subclip(0, master_video.duration)
+            # BGM dài hơn video — random offset để tránh kẹt quiet intro/outro
+            # (sample.mp3 và nhiều bài có intro 0-15s rất nhỏ → 15% volume = inaudible).
+            # Skip an toàn 20s đầu (qua intro) và 15s cuối (qua outro fade-out),
+            # rồi pick random offset trong khoảng còn lại.
+            intro_skip = float(os.getenv("BGM_INTRO_SKIP_SEC", "20"))
+            outro_skip = float(os.getenv("BGM_OUTRO_SKIP_SEC", "15"))
+            safe_start_max = max(0.0, bgm_clip.duration - master_video.duration - outro_skip)
+            if safe_start_max > intro_skip:
+                offset = random.uniform(intro_skip, safe_start_max)
+                logger.info(
+                    f"[Video {video_id}] BGM ({bgm_clip.duration:.0f}s) > video ({master_video.duration:.0f}s). "
+                    f"Random offset start={offset:.1f}s (skip intro/outro)"
+                )
+                bgm_clip = bgm_clip.subclip(offset, offset + master_video.duration)
+            else:
+                # BGM không đủ dài để skip → fallback start từ 0
+                bgm_clip = bgm_clip.subclip(0, master_video.duration)
 
         bgm_clip = bgm_clip.volumex(bgm_volume)
 

@@ -166,7 +166,7 @@ TARGET_DURATION_MINUTES=20
 .
 ├── Readme.md                                    # ← Bạn đang đọc
 └── video-content-engine/
-    ├── deploy.md                                # Hướng dẫn triển khai chi tiết
+    ├── (moved to docs/06-deployment.md)
     ├── README.md                                # README inner (kỹ thuật)
     ├── docker-compose.yml
     ├── init.sql                                 # PostgreSQL schema
@@ -248,13 +248,13 @@ Optional:
 - `TELEGRAM_BOT_TOKEN/CHAT_ID` — push notification
 - `VIDEO_API_KEY` — chỉ cần nếu set `VIDEO_PROVIDER=runway`
 
-**Hướng dẫn lấy từng key: xem [`video-content-engine/deploy.md`](./video-content-engine/deploy.md#3-lấy-api-keys) section 3.**
+**Hướng dẫn lấy từng key: xem [`docs/06-deployment.md`](./docs/06-deployment.md#3-lấy-api-keys) section 3.**
 
 ---
 
 ## 12. Giới hạn đã biết
 
-Xem [`video-content-engine/deploy.md`](./video-content-engine/deploy.md#10-giới-hạn-đã-biết-sẽ-cải-tiến) section 10:
+Xem [`docs/06-deployment.md`](./docs/06-deployment.md#10-giới-hạn-đã-biết-sẽ-cải-tiến) section 10:
 - Thumbnail từ DALL-E đã download local (3 variants) nhưng chưa auto-upload lên YouTube qua `youtube.thumbnails().set()` API
 - TikTok highlights chưa auto-extract từ script (workflow không tạo `highlights[]` trong manifest)
 - Character consistency giữa scenes (DALL-E mỗi scene độc lập, không có character DNA)

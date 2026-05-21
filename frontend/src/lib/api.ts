@@ -46,9 +46,13 @@ export const getSources = (projectId: string) =>
   api.get(`/sources/project/${projectId}`).then(r => r.data);
 
 // ---- Jobs ----
-export const getJobs = (params?: { videoId?: string; projectId?: string; queue?: string; status?: string }) =>
+export type JobsPage = { items: any[]; total: number; limit: number; offset: number };
+export const getJobs = (
+  params?: { videoId?: string; projectId?: string; queue?: string; status?: string; limit?: number; offset?: number },
+): Promise<JobsPage> =>
   api.get('/jobs', { params }).then(r => r.data);
 export const getJob = (id: string) => api.get(`/jobs/${id}`).then(r => r.data);
+export const cancelJob = (id: string) => api.delete(`/jobs/${id}`).then(r => r.data);
 
 // ---- Characters ----
 export const getCharacters = (projectId: string) =>
@@ -69,6 +73,8 @@ export const deleteFrame = (id: string) => api.delete(`/frames/${id}`).then(r =>
 export const addFrameImage = (frameId: string, data: { imageKey: string; prompt?: string }) =>
   api.post(`/frames/${frameId}/images`, data).then(r => r.data);
 export const removeFrameImage = (imageId: string) => api.delete(`/frames/images/${imageId}`).then(r => r.data);
+export const reorderFrameImages = (frameId: string, orderedIds: string[]) =>
+  api.post(`/frames/${frameId}/reorder`, { orderedIds }).then(r => r.data);
 
 // ---- API Keys ----
 export const getApiKeys = (projectId?: string) =>

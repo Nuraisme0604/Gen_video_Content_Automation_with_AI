@@ -2,6 +2,7 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { createCipheriv, createDecipheriv, createHash, randomBytes } from 'crypto';
 import { PrismaService } from '../../prisma/prisma.service';
+import { NotificationService } from '../notification/notification.service';
 import { CreateApiKeyDto } from './dto/create-api-key.dto';
 
 @Injectable()
@@ -11,6 +12,7 @@ export class ApiKeyService {
   constructor(
     private prisma: PrismaService,
     private config: ConfigService,
+    private notification: NotificationService,
   ) {}
 
   private encryptionKey(): Buffer {
@@ -63,13 +65,27 @@ export class ApiKeyService {
         lastTestLatency: result.ok ? (result.latencyMs ?? null) : null,
       },
     });
+
+    // Alert user via Telegram ONLY when a previously-working key starts failing — so they
+    // know to rotate before the next render breaks. Skip alert for keys that were never
+    // working (just-added test keys, or keys still in "error" state from before) — those
+    // are visible via the HealthBadge in UI and don't need a push notification.
+    const transitionedToBad = status !== 'ok' && key.isActive && key.lastTestStatus === 'ok';
+    if (transitionedToBad) {
+      this.notification.enqueue({
+        event: 'api_key_dead',
+        projectId: key.projectId ?? undefined,
+        message: `❌ <b>API key ${key.provider}</b> (${key.keyMasked}) vừa ngừng hoạt động\n<code>${result.error || 'Unknown error'}</code>`,
+      }).catch(() => {});
+    }
+
     return { id, ...result, status };
   }
 
-  create(dto: CreateApiKeyDto) {
+  async create(dto: CreateApiKeyDto) {
     const keyHash = createHash('sha256').update(dto.key).digest('hex');
     const keyMasked = dto.key.length > 4 ? `...${dto.key.slice(-4)}` : '****';
-    return this.prisma.apiKey.create({
+    const created = await this.prisma.apiKey.create({
       data: {
         provider: dto.provider,
         type: dto.type,
@@ -85,6 +101,9 @@ export class ApiKeyService {
         keyMasked: true, quotaLimit: true, quotaUsed: true, isActive: true, createdAt: true,
       },
     });
+    // Fire-and-forget live test so the new key shows a HealthBadge immediately on FE refetch.
+    this.testStoredKey(created.id).catch(() => {});
+    return created;
   }
 
   async toggleActive(id: string) {

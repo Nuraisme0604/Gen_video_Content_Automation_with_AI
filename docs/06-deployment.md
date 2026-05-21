@@ -435,7 +435,7 @@ docker compose restart n8n
 video-content-engine/
 ├── .env                         # Bí mật — không commit
 ├── docker-compose.yml
-├── deploy.md                    # ← bạn đang đọc
+├── 06-deployment.md            # ← bạn đang đọc (now in docs/)
 ├── README.md
 ├── init.sql                     # Tự apply lần đầu vào postgres
 │

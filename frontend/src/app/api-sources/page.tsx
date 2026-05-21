@@ -239,12 +239,15 @@ export default function ApiSourcesPage() {
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['api-keys'] });
+      // BE auto-tests new key in background (fire-and-forget). Refetch again after
+      // ~5s so the HealthBadge updates from "Chưa test" → OK/Hỏng without manual reload.
+      setTimeout(() => qc.invalidateQueries({ queryKey: ['api-keys'] }), 5000);
       setShowAdd(false);
       setShowKey(false);
       const count = form.capabilities.length;
       const provName = getProviderInfo(form.provider).displayName;
       setForm({ key: '', provider: '', capabilities: [], label: '', quotaLimit: '' });
-      toast.success(`Đã thêm key ${provName}`, { description: `Cho ${count} loại tác vụ` });
+      toast.success(`Đã thêm key ${provName}`, { description: `Cho ${count} loại tác vụ · Đang test...` });
     },
     onError: (e: any) => toast.error('Thêm key thất bại', { description: errMsg(e) }),
   });
