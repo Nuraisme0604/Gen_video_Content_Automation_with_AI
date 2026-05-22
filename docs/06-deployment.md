@@ -290,12 +290,18 @@ docker compose logs -f postgres
 4. Test → Save
 
 ### 6.3 Import workflows
-1. n8n → Workflows → Import from File
-2. Import 3 file theo thứ tự:
-   - `n8n_workflows/01_idea_and_script.json` — pipeline chính
-   - `n8n_workflows/02_scene_generation.json` — entry điểm thủ công khi đã có script
-   - `n8n_workflows/03_render_and_upload.json` — webhook nhận callback từ worker
-3. Mở từng workflow → click `Active` ở góc phải
+Tự động qua service `n8n_init` trong [docker-compose.yml](../docker-compose.yml) — chạy 1 lần khi volume `n8n_data` trống, import + activate cả 3 file:
+- `n8n_workflows/01_idea_and_script.json` — pipeline chính
+- `n8n_workflows/02_scene_generation.json` — entry điểm thủ công khi đã có script
+- `n8n_workflows/03_render_and_upload.json` — webhook nhận callback từ worker
+
+Verify:
+```bash
+docker compose logs n8n_init       # phải thấy "Seeded 3 workflows"
+docker compose exec n8n n8n list:workflow --active=true   # phải ra 3 dòng
+```
+
+Re-seed sau khi sửa file workflow JSON: `docker compose down -v` (xóa volume) hoặc `docker compose exec n8n rm /home/node/.n8n/.seeded && docker compose up -d n8n_init`.
 
 > ⚠️ Bỏ qua `reference_full_pipeline.json` — đây là legacy reference, không dùng.
 

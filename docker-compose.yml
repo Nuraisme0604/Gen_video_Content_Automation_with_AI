@@ -85,6 +85,38 @@ services:
       "
     restart: "no"
 
+  # One-shot seeder: imports workflows from n8n_workflows/ and activates them on first volume init.
+  # Skips on subsequent runs via /home/node/.n8n/.seeded marker (re-runs only after `down -v`).
+  n8n_init:
+    image: n8nio/n8n:latest
+    container_name: vca_n8n_init
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - n8n_data:/home/node/.n8n
+      - ./video-content-engine/n8n_workflows:/workflows:ro
+    user: node
+    entrypoint: /bin/sh
+    command:
+      - -c
+      - |
+        if [ -f /home/node/.n8n/.seeded ]; then
+          echo "n8n already seeded — skipping (delete /home/node/.n8n/.seeded to re-seed)"
+          exit 0
+        fi
+        echo "Importing workflows..."
+        for f in /workflows/01_idea_and_script.json /workflows/02_scene_generation.json /workflows/03_render_and_upload.json; do
+          [ -f "$$f" ] && (n8n import:workflow --input="$$f" || echo "WARN: failed to import $$f")
+        done
+        echo "Activating workflows..."
+        for id in $$(n8n list:workflow --onlyId); do
+          n8n update:workflow --id="$$id" --active=true || echo "WARN: failed to activate $$id"
+        done
+        touch /home/node/.n8n/.seeded
+        echo "Seeded $$(n8n list:workflow --onlyId | wc -l) workflows"
+    restart: "no"
+
   n8n:
     image: n8nio/n8n:latest
     container_name: vca_n8n
@@ -121,6 +153,8 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      n8n_init:
+        condition: service_completed_successfully
     restart: unless-stopped
 
   python_worker:

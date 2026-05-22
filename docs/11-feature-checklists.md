@@ -212,9 +212,9 @@
   - `ApiKey.projectId` đã có (nullable) — đảm bảo `pickActive(capability, projectId)` ưu tiên project-scoped trước global
   - Verify: project A có key OpenAI riêng → render A dùng key A trước global
 
-- [ ] 🟡 **n8n credential auto-sync** (L)
-  - Khi user add key tại `/api-sources` → tạo/update n8n credential qua n8n API
-  - Verify: add Gemini key → vào n8n UI thấy credential mới
+- [~] 🟡 **n8n auto-sync** (L) — workflow sync done, credential sync chưa
+  - [x] **Workflow auto-import**: service `n8n_init` trong [docker-compose.yml](../docker-compose.yml) tự import + activate 3 workflow JSON khi volume `n8n_data` trống. Tester chỉ cần `docker compose up -d`, không cần vào n8n UI. Marker `/home/node/.n8n/.seeded` chống re-import.
+  - [ ] **Credential auto-sync**: khi user add key tại `/api-sources` → tạo/update n8n credential qua n8n API. (Hiện workflow tự fetch key qua BE `/api-keys/internal/active` nên KHÔNG cần n8n credential — task này có thể đóng nếu không có use case khác.)
 
 ---
 

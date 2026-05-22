@@ -89,7 +89,7 @@ Stack chạy lên xong, mở 3 URL:
 | URL | Mục đích |
 |---|---|
 | http://localhost:3000 | **Web UI** — toàn bộ thao tác user |
-| http://localhost:5678 | n8n admin (chỉ cần khi import workflow lần đầu) |
+| http://localhost:5678 | n8n admin (workflows tự import lần đầu — chỉ vào khi cần sửa) |
 | http://localhost:9001 | MinIO console (xem file sinh ra) |
 
 ### 4.2 Cấu hình lần đầu (qua UI, không sửa file)
@@ -100,10 +100,7 @@ Stack chạy lên xong, mở 3 URL:
    - System auto-detect provider + capability
    - Bấm "Test kết nối" → xác nhận key hợp lệ → Lưu
    - Key được mã hoá AES-256-GCM trong DB, **không** lưu vào file
-3. **n8n setup** (chỉ lần đầu):
-   - Mở http://localhost:5678 → tạo admin local
-   - Workflows → Import → chọn file `video-content-engine/n8n_workflows/02_scene_generation.json`
-   - Activate workflow
+3. **n8n setup**: workflows tự import + activate lần đầu container start (qua service `n8n_init` trong compose). Vào http://localhost:5678 chỉ cần khi muốn sửa workflow thủ công.
 
 **Xong**. Pipeline lấy key từ DB qua BE internal endpoint, không phụ thuộc `.env`.
 
