@@ -73,17 +73,23 @@ def _prepare_thumbnail_inputs(manifest: "RenderManifest", assets_dir: str) -> tu
         logger.warning(f"[{manifest.episode_id}] No thumbnail_url in manifest. Skipping thumbnail gen.")
         return [], []
 
-    import requests
     thumb_path = os.path.join(assets_dir, f"thumbnail_source_{manifest.episode_id}.jpg")
     try:
         os.makedirs(assets_dir, exist_ok=True)
-        r = requests.get(manifest.thumbnail_url, timeout=60)
-        r.raise_for_status()
-        with open(thumb_path, "wb") as f:
-            f.write(r.content)
-        logger.info(f"[{manifest.episode_id}] Downloaded thumbnail source: {thumb_path}")
+        if manifest.thumbnail_url.startswith("data:"):
+            import base64
+            b64 = manifest.thumbnail_url.split(",", 1)[1]
+            with open(thumb_path, "wb") as f:
+                f.write(base64.b64decode(b64))
+        else:
+            import requests
+            r = requests.get(manifest.thumbnail_url, timeout=60)
+            r.raise_for_status()
+            with open(thumb_path, "wb") as f:
+                f.write(r.content)
+        logger.info(f"[{manifest.episode_id}] Saved thumbnail source: {thumb_path}")
     except Exception as e:
-        logger.error(f"[{manifest.episode_id}] Failed to download thumbnail_url: {e}")
+        logger.error(f"[{manifest.episode_id}] Failed to save thumbnail_url: {e}")
         return [], []
 
     # 3 variants: dùng thumbnail_text + 2 seo keywords làm overlay

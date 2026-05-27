@@ -97,9 +97,10 @@ def _generate_video_from_prompt(prompt: str, dest_path: str, image_path: str = N
         try:
             cmd = [
                 "ffmpeg", "-y", "-loop", "1", "-i", image_path,
-                "-c:v", "libx264", "-t", str(duration), "-pix_fmt", "yuv420p",
-                "-vf", f"scale=1920:1080:force_original_aspect_ratio=increase,crop=1920:1080,zoompan=z='min(zoom+0.0015,1.5)':d={duration*25}:s=1920x1080",
-                "-r", "25", dest_path
+                "-c:v", "libx264", "-preset", "medium", "-crf", "20",
+                "-t", str(duration), "-pix_fmt", "yuv420p",
+                "-vf", f"scale=1920:1080:flags=lanczos:force_original_aspect_ratio=increase,crop=1920:1080,zoompan=z='min(zoom+0.0015,1.5)':d={duration*30}:s=1920x1080:fps=30",
+                "-r", "30", dest_path
             ]
             r = subprocess.run(cmd, capture_output=True, timeout=120)
             if r.returncode == 0 and Path(dest_path).exists():
@@ -165,12 +166,21 @@ def download_assets_for_scene(scene: dict, assets_dir: str, runway_api_key: str,
 
     results = {"scene_id": scene_id, "video_path": None, "audio_path": None, "image_path": None}
 
-    # 1. Download image (pre-generated URL from n8n/DALL-E)
+    # 1. Save image — accepts http(s) URL or data:image/...;base64,... (Gemini image gen)
     image_url = scene.get("image_url") or scene.get("image")
-    if image_url and image_url.startswith("http"):
+    if image_url:
         img_path = str(scene_dir / f"scene_{scene_id}_image.jpg")
-        if download_file(image_url, img_path):
-            results["image_path"] = img_path
+        if image_url.startswith("data:"):
+            import base64
+            try:
+                b64 = image_url.split(",", 1)[1]
+                Path(img_path).write_bytes(base64.b64decode(b64))
+                results["image_path"] = img_path
+            except Exception as e:
+                logger.error(f"Failed to decode data URL for scene {scene_id}: {e}")
+        elif image_url.startswith("http"):
+            if download_file(image_url, img_path):
+                results["image_path"] = img_path
 
     # 2. Voiceover via Edge TTS (free, no API key required) or ElevenLabs
     text = scene.get("narration_excerpt", "")

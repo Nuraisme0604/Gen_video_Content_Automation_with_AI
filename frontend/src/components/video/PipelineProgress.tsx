@@ -45,7 +45,7 @@ export function PipelineProgress({ projectId, sourceId, onClose }: Props) {
 
   // Determine current stage
   let currentStage = source?.status || 'queued';
-  if (video) currentStage = video.status === 'rendered' || video.status === 'uploaded' ? 'rendered' : 'rendering';
+  if (video) currentStage = video.status === 'done' || video.status === 'rendered' || video.status === 'uploaded' ? 'rendered' : 'rendering';
   if (video?.status === 'failed') currentStage = 'failed';
 
   const currentIdx = STAGES.findIndex(s => s.key === currentStage);

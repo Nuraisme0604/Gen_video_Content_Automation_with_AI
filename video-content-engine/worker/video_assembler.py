@@ -140,9 +140,11 @@ def assemble_master_video(video_id: str):
     try:
         master_video.write_videofile(
             output_path,
-            fps=24,
+            fps=30,
             codec="libx264",
             audio_codec="aac",
+            audio_bitrate="192k",
+            ffmpeg_params=["-crf", "20", "-preset", "medium", "-pix_fmt", "yuv420p"],
             temp_audiofile=os.path.join(output_dir, f"temp_audio_{video_id}.m4a"),
             remove_temp=True
         )
