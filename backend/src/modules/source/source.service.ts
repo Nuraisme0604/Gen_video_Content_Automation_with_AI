@@ -1,9 +1,11 @@
-import { Injectable, BadRequestException } from '@nestjs/common';
+import { Injectable, BadRequestException, Logger } from '@nestjs/common';
 import { InjectQueue } from '@nestjs/bullmq';
 import { HttpService } from '@nestjs/axios';
 import { ConfigService } from '@nestjs/config';
 import { Queue } from 'bullmq';
 import { PrismaService } from '../../prisma/prisma.service';
+import { ApiKeyService, ResolvedProvider } from '../api-key/api-key.service';
+import { Capability } from '../../common/provider-registry';
 import { CreateYoutubeSourceDto } from './dto/create-youtube-source.dto';
 import { CreateManualSourceDto } from './dto/create-manual-source.dto';
 import { firstValueFrom } from 'rxjs';
@@ -24,10 +26,13 @@ function pickVideoConfig(dto: VideoConfig): VideoConfig {
 
 @Injectable()
 export class SourceService {
+  private readonly logger = new Logger(SourceService.name);
+
   constructor(
     private prisma: PrismaService,
     private config: ConfigService,
     private http: HttpService,
+    private apiKeyService: ApiKeyService,
     @InjectQueue('transcript-fetch') private transcriptQueue: Queue,
   ) {}
 
@@ -61,6 +66,19 @@ export class SourceService {
     return { sourceId: source.id, jobId: job.id };
   }
 
+  private async safeResolve(
+    capability: Capability,
+    provider: string,
+    model: string,
+  ): Promise<ResolvedProvider | null> {
+    try {
+      return await this.apiKeyService.resolveProvider(capability, provider, model);
+    } catch (e: any) {
+      this.logger.warn(`resolveProvider(${capability}, ${provider}, ${model}) skipped: ${e?.message}`);
+      return null;
+    }
+  }
+
   async createManual(dto: CreateManualSourceDto) {
     const videoConfig = pickVideoConfig(dto);
     const project = await this.prisma.project.findUnique({
@@ -68,6 +86,9 @@ export class SourceService {
       select: {
         niche: true, language: true, visualStyle: true,
         description: true, scriptBasePrompt: true,
+        scriptProvider: true, scriptModel: true,
+        imageProvider: true, imageModel: true,
+        videoProvider: true, videoModel: true,
       },
     });
     const source = await this.prisma.apiSource.create({
@@ -87,6 +108,19 @@ export class SourceService {
     const n8nBase = this.config.get('N8N_BASE_URL', 'http://n8n:5678');
     await this.prisma.apiSource.update({ where: { id: source.id }, data: { status: 'sent_to_n8n' } });
 
+    // Resolve provider configs for each capability from project settings.
+    // safeResolve returns null for providers not in registry (e.g. pexels, local/slideshow) —
+    // workflow falls back to its own defaults for null slots. VIDEO is passthrough only.
+    const [scriptProvider, imageProvider] = await Promise.all([
+      this.safeResolve('SCRIPT', project?.scriptProvider ?? 'google', project?.scriptModel ?? 'gemini-2.5-flash'),
+      this.safeResolve('IMAGE', project?.imageProvider ?? 'google', project?.imageModel ?? 'gemini-2.5-flash-image-preview'),
+    ]);
+    const providers = {
+      script: scriptProvider,
+      image: imageProvider,
+      video: { provider: project?.videoProvider ?? 'slideshow', model: project?.videoModel ?? 'slideshow' },
+    };
+
     firstValueFrom(
       this.http.post(`${n8nBase}/webhook/generate-scenes`, {
         sourceId: source.id,
@@ -104,6 +138,7 @@ export class SourceService {
         visual_style: project?.visualStyle,
         project_description: project?.description,
         script_base_prompt: project?.scriptBasePrompt,
+        providers,
       }, { timeout: 60000 }),
     ).catch((err) => {
       const status = err?.response?.status;

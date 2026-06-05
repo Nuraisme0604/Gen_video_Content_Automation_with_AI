@@ -4,6 +4,20 @@ import { createCipheriv, createDecipheriv, createHash, randomBytes } from 'crypt
 import { PrismaService } from '../../prisma/prisma.service';
 import { NotificationService } from '../notification/notification.service';
 import { CreateApiKeyDto } from './dto/create-api-key.dto';
+import { Capability, getProviderConfig, resolveProviderUrl, buildAuthValue } from '../../common/provider-registry';
+
+export interface ResolvedProvider {
+  id: string;
+  provider: string;
+  model: string;
+  url: string;
+  authMode: 'header' | 'query';
+  authName: string;
+  authValue: string;
+  extraHeaders?: Record<string, string>;
+  requestFormat: string;
+  responseExtract: string;
+}
 
 @Injectable()
 export class ApiKeyService {
@@ -148,6 +162,34 @@ export class ApiKeyService {
       id: key.id,
       provider: key.provider,
       key: this.decrypt(key.keyEncrypted),
+    };
+  }
+
+  /**
+   * Resolve a ready-to-use provider config for n8n: DB key (decrypted, quota-bumped
+   * via pickActive) + registry config (URL/auth/format). SCRIPT + IMAGE only —
+   * VIDEO (veo3) is SDK-based and not in the registry.
+   */
+  async resolveProvider(
+    capability: Capability,
+    provider?: string,
+    model?: string,
+  ): Promise<ResolvedProvider | null> {
+    const picked = await this.pickActive(capability, provider);
+    if (!picked) return null;
+    const entry = getProviderConfig(picked.provider, capability, model);
+    const resolvedModel = model || entry.models[0];
+    return {
+      id: picked.id,
+      provider: picked.provider,
+      model: resolvedModel,
+      url: resolveProviderUrl(entry, resolvedModel),
+      authMode: entry.auth.mode,
+      authName: entry.auth.name,
+      authValue: buildAuthValue(entry, picked.key),
+      extraHeaders: entry.extraHeaders,
+      requestFormat: entry.requestFormat,
+      responseExtract: entry.responseExtract,
     };
   }
 
