@@ -1,10 +1,13 @@
 'use client';
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { getCharacters, createCharacter, updateCharacter, deleteCharacter } from '@/lib/api';
-import { Plus, Trash2, Pencil, Check, X } from 'lucide-react';
+import { getCharacters, createCharacter, updateCharacter, deleteCharacter, generateCharacterImage } from '@/lib/api';
+import { toast } from 'sonner';
+import { Plus, Trash2, Pencil, Check, X, Sparkles, Loader2 } from 'lucide-react';
 
 type Props = { projectId: string };
+
+const errMsg = (e: any) => e?.response?.data?.message || e?.message || 'Lỗi không xác định';
 
 export function CharacterRefSheet({ projectId }: Props) {
   const qc = useQueryClient();
@@ -33,6 +36,12 @@ export function CharacterRefSheet({ projectId }: Props) {
     onSuccess: () => qc.invalidateQueries({ queryKey: ['characters', projectId] }),
   });
 
+  const gen = useMutation({
+    mutationFn: (id: string) => generateCharacterImage(id),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['characters', projectId] }); toast.success('Đã tạo ảnh nhân vật'); },
+    onError: (e: any) => toast.error('Tạo ảnh thất bại', { description: errMsg(e) }),
+  });
+
   return (
     <div className="card p-5 space-y-3">
       <div className="text-xs font-medium text-zinc-400 uppercase tracking-wider">Nhân vật (Character Consistency)</div>
@@ -40,9 +49,13 @@ export function CharacterRefSheet({ projectId }: Props) {
 
       {chars.map((c: any) => (
         <div key={c.id} className="flex items-start gap-3 bg-zinc-800/50 rounded-lg p-3">
-          <div className="w-10 h-10 rounded-lg bg-zinc-700 flex items-center justify-center text-lg shrink-0">
-            {c.name.charAt(0).toUpperCase()}
-          </div>
+          {c.imageUrl ? (
+            <img src={c.imageUrl} alt={c.name} className="w-14 h-14 rounded-lg object-cover shrink-0" />
+          ) : (
+            <div className="w-14 h-14 rounded-lg bg-zinc-700 flex items-center justify-center text-lg shrink-0">
+              {c.name.charAt(0).toUpperCase()}
+            </div>
+          )}
           {editing === c.id ? (
             <div className="flex-1 space-y-2">
               <input
@@ -69,6 +82,16 @@ export function CharacterRefSheet({ projectId }: Props) {
           )}
           {editing !== c.id && (
             <div className="flex gap-1 shrink-0">
+              <button
+                onClick={() => gen.mutate(c.id)}
+                disabled={gen.isPending && gen.variables === c.id}
+                className="p-1.5 text-violet-300 hover:text-violet-200 rounded hover:bg-violet-500/15 disabled:opacity-50"
+                title={c.imageUrl ? 'Tạo lại ảnh' : 'Generate ảnh'}
+              >
+                {gen.isPending && gen.variables === c.id
+                  ? <Loader2 size={14} className="animate-spin" />
+                  : <Sparkles size={14} />}
+              </button>
               <button onClick={() => { setEditing(c.id); setEditForm({ name: c.name, description: c.description }); }}
                 className="p-1.5 text-zinc-300 hover:text-white rounded hover:bg-zinc-800" title="Sửa">
                 <Pencil size={14} />

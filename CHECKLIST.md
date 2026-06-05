@@ -37,12 +37,12 @@
 
 **Goal:** User tạo character ở tab riêng → bấm "Generate ảnh" → DALL-E/Gemini sinh → cache DB. Gate trước pipeline.
 
-- [ ] **B.1** Migration `7_add_character_imageurl` — thêm `imageUrl String?` cho `Character` (field `imageKey` đã có, thêm `imageUrl` cho FE display)
-- [ ] **B.2** Endpoint `POST /api/v1/characters/:id/generate-image` — fetch image provider key + call API + upload MinIO + update DB
-- [ ] **B.3** Endpoint xử lý: edit description → unset imageUrl (báo "cần regen")
-- [ ] **B.4** Frontend `CharacterRefSheet.tsx` extend: button "Generate ảnh" trên mỗi card + preview + loading state
-- [ ] **B.5** Frontend `lib/api.ts` thêm `generateCharacterImage(characterId)`
-- [ ] **B.6** Verify: tạo character → bấm Generate → thấy preview ảnh
+- [x] ✅ ~~**B.1** Migration `6_add_character_imageurl` — thêm `imageUrl String?` cho `Character` (field `imageKey` đã có, thêm `imageUrl` cho FE display)~~ — **Note:** Tạo tay `migration.sql` (IF NOT EXISTS, khớp style migrations 1–4). Rebuild backend: `migrate deploy` apply thành công, column `imageUrl TEXT nullable` xuất hiện trong `\d "Character"`. `tsc --noEmit`: 0 errors. Checklist ghi `7_` nhưng dùng `6_` vì migration hiện tại mới nhất là 5.
+- [x] ✅ ~~**B.2** Endpoint `POST /api/v1/characters/:id/generate-image` — fetch image provider key + call API + upload MinIO + update DB~~ — **Note:** `CharacterService.generateImage`: load character → resolveProvider('IMAGE' từ project config) → null throw BadRequestException rõ → fetch Gemini (mirror body format n8n node) → parse `candidates[0].content.parts` → PutObjectCommand MinIO key `characters/<id>.<ext>` → update DB `imageKey+imageUrl`. `CharacterModule` import `ApiKeyModule`. `@aws-sdk/client-s3` thêm vào package.json. Route `POST /api/v1/characters/:id/generate-image` registered. `tsc --noEmit`: 0 errors (cần `prisma generate` trước do B.1 thêm `imageUrl`). AWS SDK Node 20 warning là cosmetic.
+- [x] ✅ ~~**B.3** Endpoint xử lý: edit description → unset imageUrl (báo "cần regen")~~ — **Note:** Hook vào `CharacterService.update()` hiện có: nếu `data.description` thay đổi so với giá trị cũ → patch thêm `imageUrl=null, imageKey=null`. Không cần migration/endpoint mới/DTO mới. `tsc --noEmit`: 0 errors. Backend rebuilt + started clean.
+- [x] ✅ ~~**B.4** Frontend `CharacterRefSheet.tsx` extend: button "Generate ảnh" trên mỗi card + preview + loading state~~ — **Note:** Thêm `gen` mutation (`generateCharacterImage`), `errMsg` helper, `toast` sonner. Avatar slot bump `w-10→w-14 h-10→h-14`: render `<img>` nếu có `imageUrl`, fallback chữ cái. Nút Sparkles (violet) cạnh Pencil/Trash: loading `Loader2 animate-spin` khi pending per-card (`gen.variables === c.id`), title thay đổi tùy có ảnh hay chưa. `onError` toast với `errMsg(e)` extract message từ BE. `next build` passed 0 type errors. Frontend rebuilt + started.
+- [x] ✅ ~~**B.5** Frontend `lib/api.ts` thêm `generateCharacterImage(characterId)`~~ — **Note:** 1 dòng `api.post(\`/characters/${id}/generate-image\`)`. Thực hiện cùng B.4.
+- [ ] **B.6** Verify: tạo character → bấm Generate → thấy preview ảnh — **DEFERRED (thiếu quota):** Test endpoint thật (character `vnmese old woman`, project Ly1 google/gemini-2.5-flash-image) → HTTP 400 "Image API quota hết (429)" từ Google. Đã chứng minh: route reachable, resolve provider đúng (google IMAGE key + model), Gemini **được gọi thật** (429 là từ Google không phải lỗi code), error handling chuẩn (429→BadRequestException→400 message rõ cho FE toast). Còn chặn sau 429: image bytes→upload MinIO→update DB→FE preview. Hoàn tất khi key có quota image (chung blocker với A.5, sẽ ảnh hưởng G.4/H.6).
 
 ---
 

@@ -61,6 +61,7 @@ export const createCharacter = (data: { projectId: string; name: string; descrip
   api.post('/characters', data).then(r => r.data);
 export const updateCharacter = (id: string, data: any) => api.patch(`/characters/${id}`, data).then(r => r.data);
 export const deleteCharacter = (id: string) => api.delete(`/characters/${id}`).then(r => r.data);
+export const generateCharacterImage = (id: string) => api.post(`/characters/${id}/generate-image`).then(r => r.data);
 
 // ---- Frames ----
 export const getFrames = (projectId: string) =>

@@ -202,6 +202,8 @@ model Character {
   description String   // DNA prompt, e.g. "Caucasian male, 30s, dark beard..."
   /// S3 key of reference image
   imageKey    String?
+  /// Public/presigned URL for FE display (set after generate-image)
+  imageUrl    String?
   sortOrder   Int      @default(0)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
