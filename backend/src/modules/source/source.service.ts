@@ -98,7 +98,7 @@ export class SourceService {
         rawScript: dto.script,
         title: dto.title,
         status: 'fetched',
-        metadata: videoConfig as any,
+        metadata: { ...videoConfig, voiceScript: dto.voiceScript, qualityMode: dto.qualityMode, characterId: dto.characterId } as any,
       },
     });
 
@@ -133,6 +133,9 @@ export class SourceService {
         scene_count: videoConfig.sceneCount,
         target_duration_sec: videoConfig.targetDurationSec,
         aspect_ratio: videoConfig.aspectRatio,
+        voice_script: dto.voiceScript,
+        quality_mode: dto.qualityMode,
+        character_id: dto.characterId,
         channel_niche: project?.niche,
         language: project?.language,
         visual_style: project?.visualStyle,

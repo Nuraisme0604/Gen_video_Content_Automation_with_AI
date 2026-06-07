@@ -15,4 +15,13 @@ export class CreateManualSourceDto {
 
   @ApiProperty({ required: false, enum: ['16:9', '9:16', '1:1'] })
   @IsOptional() @IsIn(['16:9', '9:16', '1:1']) aspectRatio?: '16:9' | '9:16' | '1:1';
+
+  @ApiProperty({ required: false, description: 'Voice-over script — để trống AI tự sinh' })
+  @IsOptional() @IsString() voiceScript?: string;
+
+  @ApiProperty({ required: false, enum: ['draft', 'standard', 'premium'] })
+  @IsOptional() @IsIn(['draft', 'standard', 'premium']) qualityMode?: 'draft' | 'standard' | 'premium';
+
+  @ApiProperty({ required: false, description: 'ID nhân vật từ project library' })
+  @IsOptional() @IsString() characterId?: string;
 }

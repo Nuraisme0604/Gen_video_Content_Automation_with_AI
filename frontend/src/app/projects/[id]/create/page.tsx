@@ -1,8 +1,8 @@
 'use client';
 import { useState, use, useEffect, useRef } from 'react';
 import { useMutation, useQuery } from '@tanstack/react-query';
-import { createYoutubeSource, createManualSource, getProject } from '@/lib/api';
-import { AlertTriangle, Youtube, PenLine, Newspaper, BookOpen, Save, Check, Film, Clock, Ratio } from 'lucide-react';
+import { createYoutubeSource, createManualSource, getProject, getCharacters } from '@/lib/api';
+import { AlertTriangle, Youtube, PenLine, Newspaper, BookOpen, Save, Check, Film, Clock, Ratio, Gauge, User } from 'lucide-react';
 import { toast } from 'sonner';
 import { VoiceConfigPanel } from '@/components/video/VoiceConfigPanel';
 import { CharacterRefSheet } from '@/components/video/CharacterRefSheet';
@@ -23,11 +23,14 @@ type FormState = {
   sceneCount: number | '';
   targetDurationSec: number | '';
   aspectRatio: AspectRatio | '';
+  voiceScript: string;
+  qualityMode: 'draft' | 'standard' | 'premium' | '';
+  characterId: string;
 };
 
 const EMPTY: FormState = {
   tab: 'youtube', url: '', title: '', script: '', description: '', articleUrl: '', disclaimerAccepted: false,
-  sceneCount: '', targetDurationSec: '', aspectRatio: '',
+  sceneCount: '', targetDurationSec: '', aspectRatio: '', voiceScript: '', qualityMode: '', characterId: '',
 };
 
 const DURATION_PRESETS: { label: string; value: number }[] = [
@@ -44,12 +47,15 @@ const ASPECT_OPTIONS: { label: string; value: AspectRatio; hint: string }[] = [
   { label: '1:1',  value: '1:1',  hint: 'Vuông (IG/FB)' },
 ];
 
+const QUALITY_CAPS: Record<string, number> = { draft: 3, standard: 5, premium: 8 };
+
 export default function CreatePage({ params }: { params: Promise<{ id: string }> }) {
   const { id: projectId } = use(params);
   const draftKey = `vca:draft:${projectId}`;
   const activeKey = `vca:active-source:${projectId}`;
 
   const { data: project } = useQuery({ queryKey: ['project', projectId], queryFn: () => getProject(projectId) });
+  const { data: characters = [] } = useQuery({ queryKey: ['characters', projectId], queryFn: () => getCharacters(projectId) });
   const [voiceConfig, setVoiceConfig] = useState<any>({});
   const [form, setForm] = useState<FormState>(EMPTY);
   const [activeSourceId, setActiveSourceIdState] = useState<string | null>(null);
@@ -81,6 +87,8 @@ export default function CreatePage({ params }: { params: Promise<{ id: string }>
 
   const set = (patch: Partial<FormState>) => setForm(f => ({ ...f, ...patch }));
 
+  const sceneMax = form.qualityMode ? QUALITY_CAPS[form.qualityMode] : 20;
+
   const scrollToProgress = () => {
     setTimeout(() => progressRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 100);
   };
@@ -111,6 +119,9 @@ export default function CreatePage({ params }: { params: Promise<{ id: string }>
       script: form.script,
       disclaimerAccepted: form.disclaimerAccepted || form.tab === 'story' || form.tab === 'manual',
       ...videoCfg(),
+      voiceScript: form.voiceScript || undefined,
+      qualityMode: form.qualityMode || undefined,
+      characterId: form.characterId || undefined,
     }),
     onSuccess: (data: any) => {
       setActiveSourceId(data.id);
@@ -127,7 +138,7 @@ export default function CreatePage({ params }: { params: Promise<{ id: string }>
   };
 
   const videoCfgIncomplete =
-    form.sceneCount === '' || Number(form.sceneCount) < 3 || Number(form.sceneCount) > 20 ||
+    form.sceneCount === '' || Number(form.sceneCount) < 3 || Number(form.sceneCount) > sceneMax ||
     form.targetDurationSec === '' || Number(form.targetDurationSec) < 15 ||
     form.aspectRatio === '';
 
@@ -220,21 +231,52 @@ export default function CreatePage({ params }: { params: Promise<{ id: string }>
 
       </div>
 
+      {/* Voice-over script — optional, AI generates if blank */}
+      <div className="card p-5 mb-4">
+        <div className="text-xs font-medium text-zinc-400 mb-3 uppercase tracking-wider">
+          Lời thoại / Voice-over <span className="text-zinc-600 normal-case">(tuỳ chọn)</span>
+        </div>
+        <textarea value={form.voiceScript} onChange={e => set({ voiceScript: e.target.value })}
+          placeholder="Để trống → AI tự sinh lời thoại từ tiêu đề + nội dung. Nhập nếu muốn kiểm soát chính xác lời đọc."
+          rows={4}
+          className="w-full bg-zinc-800 rounded-lg px-3 py-2 text-sm outline-none border border-zinc-700 focus:border-violet-500 resize-none" />
+      </div>
+
       {/* Video config — required for ALL tabs (số scenes / thời lượng / aspect ratio) */}
       <div className="card p-5 mb-4">
         <div className="text-xs font-medium text-zinc-400 mb-3 uppercase tracking-wider">
           Cấu hình video <span className="text-rose-400 normal-case">*</span>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
           <div>
             <label className="flex items-center gap-1.5 text-xs text-zinc-400 mb-1.5">
-              <Film size={12} /> Số scenes (3–20)
+              <Gauge size={12} /> Chất lượng
+            </label>
+            <select
+              value={form.qualityMode}
+              onChange={e => {
+                const q = e.target.value as FormState['qualityMode'];
+                const cap = q ? QUALITY_CAPS[q] : 20;
+                set({ qualityMode: q, sceneCount: form.sceneCount === '' ? '' : Math.min(Number(form.sceneCount), cap) });
+              }}
+              className="w-full bg-zinc-800 rounded-lg px-3 py-2 text-sm outline-none border border-zinc-700 focus:border-violet-500"
+            >
+              <option value="">— Mặc định —</option>
+              <option value="draft">Draft (nháp nhanh)</option>
+              <option value="standard">Standard</option>
+              <option value="premium">Premium (chất lượng cao)</option>
+            </select>
+          </div>
+
+          <div>
+            <label className="flex items-center gap-1.5 text-xs text-zinc-400 mb-1.5">
+              <Film size={12} /> Số scenes (3–{sceneMax})
             </label>
             <input
-              type="number" min={3} max={20}
+              type="number" min={3} max={sceneMax}
               value={form.sceneCount}
-              onChange={e => set({ sceneCount: e.target.value === '' ? '' : Math.max(3, Math.min(20, parseInt(e.target.value) || 0)) })}
+              onChange={e => set({ sceneCount: e.target.value === '' ? '' : Math.max(3, Math.min(sceneMax, parseInt(e.target.value) || 0)) })}
               placeholder="VD: 8"
               className="w-full bg-zinc-800 rounded-lg px-3 py-2 text-sm outline-none border border-zinc-700 focus:border-violet-500"
             />
@@ -291,6 +333,21 @@ export default function CreatePage({ params }: { params: Promise<{ id: string }>
         onChange={patch => setVoiceConfig((v: any) => ({ ...v, ...patch }))} />
       <VoiceConfigPanel projectId={projectId} config={{ ...project, ...voiceConfig }}
         onChange={patch => setVoiceConfig((v: any) => ({ ...v, ...patch }))} />
+      {/* Character picker — single character for this video */}
+      <div className="card p-5 mb-4">
+        <label className="flex items-center gap-1.5 text-xs font-medium text-zinc-400 mb-3 uppercase tracking-wider">
+          <User size={12} /> Nhân vật cho video <span className="text-zinc-600 normal-case font-normal">(tuỳ chọn)</span>
+        </label>
+        <select value={form.characterId} onChange={e => set({ characterId: e.target.value })}
+          className="w-full bg-zinc-800 rounded-lg px-3 py-2 text-sm outline-none border border-zinc-700 focus:border-violet-500">
+          <option value="">— Không dùng nhân vật —</option>
+          {(characters as any[]).map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+        </select>
+        {(characters as any[]).length === 0 && (
+          <p className="text-xs text-zinc-600 mt-2">Chưa có nhân vật. Tạo ở mục bên dưới.</p>
+        )}
+      </div>
+
       <CharacterRefSheet projectId={projectId} />
 
       {/* Submit error display — must be visible BEFORE the button row */}

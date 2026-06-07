@@ -50,12 +50,12 @@
 
 **Goal:** Form Tạo video có 3 input mới, backward compat.
 
-- [ ] **C.1** Thêm `voice_script: string?` vào FormState — textarea optional, placeholder "Để trống AI sinh"
-- [ ] **C.2** Thêm `quality_mode: 'draft' | 'standard' | 'premium'` — select dropdown
-- [ ] **C.3** Thêm `character_id: string?` — dropdown từ project library (fetch list characters)
-- [ ] **C.4** Quality mode cap sceneCount slider max (Draft=3 / Std=5 / Premium=8 / Hard=10)
-- [ ] **C.5** Cập nhật DTO `CreateManualSourceDto` thêm 3 field optional (backward compat)
-- [ ] **C.6** Verify: submit form với các combination → BE nhận đủ field
+- [x] ✅ ~~**C.1** Thêm `voice_script: string?` vào FormState — textarea optional, placeholder "Để trống AI sinh"~~ — **Note:** FE-only, chưa wire BE (đó là C.5). Thêm `voiceScript: string` vào `FormState` type + `voiceScript: ''` vào `EMPTY` (draft restore an toàn). Card "Lời thoại / Voice-over (tuỳ chọn)" đặt giữa card Nguồn đầu vào và card Cấu hình video. `next build` passed, frontend rebuilt + started.
+- [x] ✅ ~~**C.2** Thêm `quality_mode: 'draft' | 'standard' | 'premium'` — select dropdown~~ — **Note:** FE-only, chưa wire BE (C.5). Thêm `qualityMode: 'draft'|'standard'|'premium'|''` vào FormState + `''` vào EMPTY. Card "Cấu hình video" đổi grid `cols-3→cols-4`, cột đầu là select Chất lượng (icon Gauge, 3 option + "Mặc định"). `qualityMode` optional — không block submit. `next build` 0 type errors, frontend rebuilt + started.
+- [x] ✅ ~~**C.3** Thêm `character_id: string?` — dropdown từ project library (fetch list characters)~~ — **Note:** FE-only, chưa wire BE (C.5). Thêm `characterId: string` vào FormState + `''` vào EMPTY. `useQuery(['characters', projectId])` share cache với CharacterRefSheet (react-query dedupe). Card picker riêng ngay trên CharacterRefSheet: select "Không dùng nhân vật" default + list `c.name`. `characters.length === 0` hiện hint tạo nhân vật. `characterId` optional — không block submit. `next build` 0 type errors, frontend rebuilt + started.
+- [x] ✅ ~~**C.4** Quality mode cap sceneCount slider max (Draft=3 / Std=5 / Premium=8 / Hard=10)~~ — **Note:** "Hard" không tồn tại trong C.2 → implement 3 cap khớp 3 mode: Draft=3/Standard=5/Premium=8. Const `QUALITY_CAPS` module-level. Derived `sceneMax` trong component (qualityMode='' → max=20 backward compat). Quality select onChange: đổi mode → auto-clamp sceneCount xuống cap mới. sceneCount input: label động "3–{sceneMax}", max attr dynamic, onChange clamp dùng sceneMax. `videoCfgIncomplete` thay hardcode `> 20` → `> sceneMax`. `next build` 0 type errors, frontend rebuilt + started.
+- [x] ✅ ~~**C.5** Cập nhật DTO `CreateManualSourceDto` thêm 3 field optional (backward compat)~~ — **Note:** DTO thêm `voiceScript?: string`, `qualityMode?: 'draft'|'standard'|'premium'`, `characterId?: string` (đều `@IsOptional`). `source.service.ts`: lưu 3 field vào `metadata` (traceability) + inject vào n8n payload snake_case (`voice_script/quality_mode/character_id`). `api.ts` extend type `createManualSource`. `create/page.tsx` `manualMutation` gửi 3 field (`'' → undefined`). YouTube path không thay đổi. BE `tsc --noEmit` 0 errors, backend + frontend rebuilt + started.
+- [x] ✅ ~~**C.6** Verify: submit form với các combination → BE nhận đủ field~~ — **Note:** curl 4 combos vào `POST /api/v1/sources/manual`. A (đủ 3 field): 201, metadata có `voiceScript+qualityMode+characterId`. B (không field mới): 201, metadata không có 3 field — backward compat OK. C (partial, chỉ qualityMode=draft): 201, metadata có `qualityMode` only. D (qualityMode=ultra invalid): 400 + message `"qualityMode must be one of: draft, standard, premium"` — `@IsIn` validation hoạt động đúng. Tất cả 4 combos pass.
 
 ---
 
@@ -63,7 +63,7 @@
 
 **Goal:** n8n workflow nodes mới: normalize + voice script.
 
-- [ ] **D.1** Workflow node `Normalize Input` — cap sceneCount theo quality_mode (server-side enforcement, defense in depth)
+- [x] ✅ ~~**D.1** Workflow node `Normalize Input` — cap sceneCount theo quality_mode (server-side enforcement, defense in depth)~~ — **Note:** fold vào `Code - Validate Input` (không tạo node mới); passthrough quality_mode/voice_script/character_id vào config cho downstream
 - [ ] **D.2** Workflow node `Voice Script Resolver` — if có voice_script clean nhẹ; else gọi LLM (Claude) sinh từ title+script
 - [ ] **D.3** Verify: submit không voice_script → workflow execute log thấy voice_script được AI sinh
 - [ ] **D.4** Verify: submit có voice_script → workflow dùng đúng input, không AI sinh

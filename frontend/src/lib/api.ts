@@ -40,7 +40,8 @@ export type VideoConfig = {
 export const createYoutubeSource = (data: { projectId: string; url: string } & VideoConfig) =>
   api.post('/sources/youtube', data).then(r => r.data);
 export const createManualSource = (
-  data: { projectId: string; title: string; script: string; disclaimerAccepted?: boolean } & VideoConfig,
+  data: { projectId: string; title: string; script: string; disclaimerAccepted?: boolean;
+    voiceScript?: string; qualityMode?: 'draft' | 'standard' | 'premium'; characterId?: string } & VideoConfig,
 ) => api.post('/sources/manual', data).then(r => r.data);
 export const getSources = (projectId: string) =>
   api.get(`/sources/project/${projectId}`).then(r => r.data);
