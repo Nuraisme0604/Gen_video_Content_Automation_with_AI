@@ -22,7 +22,12 @@ engine = create_engine(DATABASE_URL, pool_pre_ping=True, pool_size=10, max_overf
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 MAX_PARALLEL_SCENES = int(os.getenv("MAX_PARALLEL_SCENES", "5"))
-COST_PER_SCENE = 0.65  # image $0.1 + voice $0.05 + video $0.5
+
+_VIDEO_COSTS = {"veo3": 0.59, "runway": 0.59, "slideshow": 0.04, "local": 0.04}
+
+def _cost_per_scene(provider: str = None, model: str = None) -> float:
+    p = (provider or os.getenv("VIDEO_PROVIDER", "slideshow")).lower()
+    return _VIDEO_COSTS.get(p, 0.65)
 
 app = FastAPI(title="Content Engine Worker", version="3.0.0")
 
@@ -31,7 +36,7 @@ class RenderScene(BaseModel):
     scene_id: str
     start_sec: float = 0
     end_sec: float = 8
-    narration_excerpt: str
+    narration_text: str
     image: Optional[str] = None        # Legacy field name
     image_url: Optional[str] = None    # Pre-generated image URL
     video_url: Optional[str] = None    # Pre-rendered video URL (skip generation)
@@ -55,9 +60,22 @@ class RenderManifest(BaseModel):
     thumbnail_url: Optional[str] = None  # DALL-E thumbnail URL from n8n
 
 
+def _emit_scene_progress(video_id: str, scene_index: int, status: str) -> None:
+    """Fire-and-forget webhook for per-scene progress (L.1)."""
+    try:
+        requests.post(
+            f"{os.getenv('BACKEND_URL', 'http://backend:3001')}/api/v1/webhooks/worker/scene-progress",
+            json={"videoId": video_id, "sceneIndex": scene_index, "status": status},
+            timeout=5,
+        )
+    except Exception:
+        pass
+
+
 def _download_single_scene(args: tuple) -> tuple:
     """Worker function for ThreadPoolExecutor."""
-    scene_order, scene, assets_dir, runway_key, elevenlabs_key, voice_id = args
+    scene_order, scene, assets_dir, runway_key, elevenlabs_key, voice_id, video_id = args
+    _emit_scene_progress(video_id, scene_order, "rendering")
     results = download_assets_for_scene(
         scene.model_dump(), assets_dir, runway_key, elevenlabs_key, voice_id
     )
@@ -206,7 +224,8 @@ def process_video_pipeline(manifest: RenderManifest):
             db.commit()
 
         # 2. Budget pre-check
-        total_estimated = len(manifest.scenes) * COST_PER_SCENE
+        scene_cost = _cost_per_scene()
+        total_estimated = len(manifest.scenes) * scene_cost
         budget_limit = float(os.getenv("BUDGET_LIMIT_PER_VIDEO", "100"))
         if total_estimated > budget_limit:
             raise ValueError(f"Estimated cost ${total_estimated:.2f} exceeds budget ${budget_limit:.2f}")
@@ -225,9 +244,12 @@ def process_video_pipeline(manifest: RenderManifest):
         voice_id = os.getenv("ELEVENLABS_VOICE_ID", "")
 
         scene_args = [
-            (order, scene, assets_dir, runway_key, elevenlabs_key, voice_id)
+            (order, scene, assets_dir, runway_key, elevenlabs_key, voice_id, video_id)
             for order, scene in enumerate(manifest.scenes)
         ]
+
+        for order in range(len(manifest.scenes)):
+            _emit_scene_progress(video_id, order, "queued")
 
         completed_scenes = []
         total_cost = 0.0
@@ -238,14 +260,26 @@ def process_video_pipeline(manifest: RenderManifest):
                 try:
                     scene_order, scene, results = future.result()
                     scene_status = "completed" if results.get("video_path") else "failed"
+                    _emit_scene_progress(video_id, scene_order, "done" if scene_status == "completed" else "failed")
                     # Chỉ tính cost cho scenes thực sự thành công
                     if scene_status == "completed":
-                        total_cost += COST_PER_SCENE
+                        total_cost += scene_cost
+                    # J.2: checkpoint — upload clip to MinIO immediately after scene done
+                    if results.get("video_path"):
+                        try:
+                            from storage import upload_file as s3_upload
+                            clip_key = f"videos/{video_id}/clips/clip_{scene_order:03d}.mp4"
+                            if s3_upload(results["video_path"], clip_key, "video/mp4"):
+                                results["clip_key"] = clip_key
+                                logger.info(f"[{video_id}] Scene {scene_order} checkpoint uploaded: {clip_key}")
+                        except Exception as ue:
+                            logger.warning(f"[{video_id}] Scene {scene_order} checkpoint upload failed: {ue}")
                     completed_scenes.append((scene_order, scene, results, scene_status))
                     logger.info(f"[{video_id}] Scene {scene_order} done: {scene_status}")
                 except Exception as e:
                     scene_order = futures[future]
                     logger.error(f"[{video_id}] Scene {scene_order} exception: {e}")
+                    _emit_scene_progress(video_id, scene_order, "failed")
 
         # 5. Persist scene results — ghi đủ tất cả columns trong schema
         with SessionLocal() as db:
@@ -271,13 +305,13 @@ def process_video_pipeline(manifest: RenderManifest):
                         "id": scene_id,
                         "vid": video_id,
                         "idx": scene_order,
-                        "votext": scene.narration_excerpt,
+                        "votext": scene.narration_text,
                         "apath": results.get("audio_path"),
-                        "vpath": results.get("video_path"),
+                        "vpath": results.get("clip_key") or results.get("video_path"),
                         "ipath": results.get("image_path"),
                         "status": scene_status,
                         "err": err_msg,
-                        "cost": COST_PER_SCENE if scene_status == "completed" else 0.0,
+                        "cost": scene_cost if scene_status == "completed" else 0.0,
                     },
                 )
             db.execute(
@@ -334,7 +368,11 @@ def process_video_pipeline(manifest: RenderManifest):
             if os.path.exists(thumb_local):
                 thumbnail_key = s3_upload(thumb_local, f"videos/{video_id}/thumb.jpg", "image/jpeg")
             # Upload each scene's video clip to videos/{id}/clips/clip_{idx:03d}.mp4
+            # Scenes already uploaded as J.2 checkpoint are skipped
+            _checkpoint_keys = {o: r.get("clip_key") for o, _, r, _ in completed_scenes}
             for idx, scene in enumerate(manifest.scenes):
+                if _checkpoint_keys.get(idx):
+                    continue
                 local_path = os.path.join(assets_dir, f"scene_{scene.scene_id}_video.mp4")
                 if os.path.exists(local_path):
                     clip_key = f"videos/{video_id}/clips/clip_{idx:03d}.mp4"

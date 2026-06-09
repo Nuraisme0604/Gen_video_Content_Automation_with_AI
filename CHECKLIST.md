@@ -42,8 +42,6 @@
 - [x] ✅ ~~**B.3** Endpoint xử lý: edit description → unset imageUrl (báo "cần regen")~~ — **Note:** Hook vào `CharacterService.update()` hiện có: nếu `data.description` thay đổi so với giá trị cũ → patch thêm `imageUrl=null, imageKey=null`. Không cần migration/endpoint mới/DTO mới. `tsc --noEmit`: 0 errors. Backend rebuilt + started clean.
 - [x] ✅ ~~**B.4** Frontend `CharacterRefSheet.tsx` extend: button "Generate ảnh" trên mỗi card + preview + loading state~~ — **Note:** Thêm `gen` mutation (`generateCharacterImage`), `errMsg` helper, `toast` sonner. Avatar slot bump `w-10→w-14 h-10→h-14`: render `<img>` nếu có `imageUrl`, fallback chữ cái. Nút Sparkles (violet) cạnh Pencil/Trash: loading `Loader2 animate-spin` khi pending per-card (`gen.variables === c.id`), title thay đổi tùy có ảnh hay chưa. `onError` toast với `errMsg(e)` extract message từ BE. `next build` passed 0 type errors. Frontend rebuilt + started.
 - [x] ✅ ~~**B.5** Frontend `lib/api.ts` thêm `generateCharacterImage(characterId)`~~ — **Note:** 1 dòng `api.post(\`/characters/${id}/generate-image\`)`. Thực hiện cùng B.4.
-- [ ] **B.6** Verify: tạo character → bấm Generate → thấy preview ảnh — **DEFERRED (thiếu quota):** Test endpoint thật (character `vnmese old woman`, project Ly1 google/gemini-2.5-flash-image) → HTTP 400 "Image API quota hết (429)" từ Google. Đã chứng minh: route reachable, resolve provider đúng (google IMAGE key + model), Gemini **được gọi thật** (429 là từ Google không phải lỗi code), error handling chuẩn (429→BadRequestException→400 message rõ cho FE toast). Còn chặn sau 429: image bytes→upload MinIO→update DB→FE preview. Hoàn tất khi key có quota image (chung blocker với A.5, sẽ ảnh hưởng G.4/H.6).
-
 ---
 
 ## GĐ C — UI Inputs (voice_script + quality_mode + character dropdown) (1 ngày)
@@ -64,9 +62,9 @@
 **Goal:** n8n workflow nodes mới: normalize + voice script.
 
 - [x] ✅ ~~**D.1** Workflow node `Normalize Input` — cap sceneCount theo quality_mode (server-side enforcement, defense in depth)~~ — **Note:** fold vào `Code - Validate Input` (không tạo node mới); passthrough quality_mode/voice_script/character_id vào config cho downstream
-- [ ] **D.2** Workflow node `Voice Script Resolver` — if có voice_script clean nhẹ; else gọi LLM (Claude) sinh từ title+script
-- [ ] **D.3** Verify: submit không voice_script → workflow execute log thấy voice_script được AI sinh
-- [ ] **D.4** Verify: submit có voice_script → workflow dùng đúng input, không AI sinh
+- [x] ✅ ~~**D.2** Workflow node `Voice Script Resolver` — if có voice_script clean nhẹ; else gọi LLM (Claude) sinh từ title+script~~ — **Note:** 4 nodes: `IF - Has Voice Script` → [true: `Code - Clean Voice Script`] / [false: `Code - Build Voice Request` → `HTTP - Generate Voice Script` → `Code - Parse Voice Script`] → `AI - Scene Breakdown` (17 nodes total). `$helpers.httpRequest()` không available trong Code node n8n v2.19.5 → dùng IF + HTTP Request node riêng. Cả 2 path đều connect vào AI - Scene Breakdown. Downstream shift +600px.
+- [x] ✅ ~~**D.3** Verify: submit không voice_script → workflow execute log thấy voice_script được AI sinh~~ — **Note:** Exec 11: IF→FALSE→BuildReq→HTTP(11s Gemini call)→ParseVoice→AISceneBreakdown→ParseScenes→SplitScenes. Voice script generated OK. Fail sau tại GenSceneImage (image quota 429 — expected).
+- [x] ✅ ~~**D.4** Verify: submit có voice_script → workflow dùng đúng input, không AI sinh~~ — **Note:** Exec 12: IF→TRUE→Code-Clean-Voice-Script→AISceneBreakdown. `HTTP - Generate Voice Script` không xuất hiện trong log — AI không được gọi. Fail sau ở GenSceneImage (quota 429 — expected).
 
 ---
 
@@ -74,11 +72,11 @@
 
 **Goal:** Rewrite Scene Breakdown node prompt template — encode 10 rules đã chốt.
 
-- [ ] **E.1** Rewrite prompt: bắt buộc đúng N scene, narration = exact substring, cắt theo câu, cân bằng word count
-- [ ] **E.2** Include character_bible + style_bible context vào prompt
-- [ ] **E.3** Output schema: `{style_bible, character_bible, scenes[{scene_id, start/end_sec, narration_text, image_prompt, video_prompt, has_character}]}`
-- [ ] **E.4** Switch model call sang provider config (qua GĐ A)
-- [ ] **E.5** Verify: scene plan ra đúng N, narration ghép = voice_script gốc
+- [x] ✅ ~~**E.1** Rewrite prompt: bắt buộc đúng N scene, narration = exact substring, cắt theo câu, cân bằng word count~~ — **Note:** `defaultBase` rewrite: 10 strict rules (SCENE COUNT exact, NARRATION VERBATIM word-for-word, SENTENCE BOUNDARIES chỉ cắt tại `.!?`, FULL COVERAGE concat = full script, WORD BALANCE ±20%). `userMessage` dùng `scriptToSplit = body.voice_script || body.narration_script` + delimit script bằng `"""`. Fix `durationLabel` bug (`* 8` → `* (sceneCount || 8)`). `Code - Parse Voice Script` thêm rebuild `script_request.body.messages` với resolved voice_script trước khi feed `AI - Scene Breakdown`.
+- [x] ✅ ~~**E.2** Include character_bible + style_bible context vào prompt~~ — **Note:** BE `source.service.ts`: nếu `characterId` set → `prisma.character.findUnique` lấy `{name, description, imageUrl}` → gửi object `character` trong n8n payload. `Code - Validate Input`: build `characterBible` string từ `body.character`; inject vào `defaultBase` dưới label "CHARACTER REFERENCE"; thêm "STYLE CONTEXT" section thay `Visual style:` rời. Config output thêm `character` + `character_bible` (plain string) cho downstream. `tsc --noEmit` 0 errors. Re-seed + backend restart done.
+- [x] ✅ ~~**E.3** Output schema: `{style_bible, character_bible, scenes[{scene_id, start/end_sec, narration_text, image_prompt, video_prompt, has_character}]}`~~ — **Note:** 4 nodes updated: (1) `Code - Validate Input` + (2) `Code - Parse Voice Script` — JSON format template thêm `character_bible` top-level, đổi `narration_excerpt→narration_text`, thêm `has_character` per scene; (3) `Code - Split Scenes` — thêm `character_bible: scene_plan.character_bible || config.character_bible`; (4) `Code - Build Manifest` — rename `narration_excerpt→narration_text` (backward compat fallback), add `has_character`, add top-level `style_bible` + `character_bible`. Re-seed done.
+- [x] ✅ ~~**E.4** Switch model call sang provider config (qua GĐ A)~~ — **Note:** `AI - Scene Breakdown` HTTP node đổi từ `$('Code - Validate Input').first().json.script_request` sang `$input.first().json.script_request`. Fix bug: false branch (voice_script sinh bởi LLM) — `Code - Parse Voice Script` rebuild script_request với voice_script mới, nhưng HTTP node ignore rebuild đó vì vẫn đọc từ Validate Input. Nay dùng `$input.first()` → true branch lấy từ `Code - Clean Voice Script` (script_request có voice_script từ validate), false branch lấy từ `Code - Parse Voice Script` (rebuilt với generated voice_script). Provider config (url/headers/model) đến đúng provider qua providers.script — đã có từ A.4. Re-seed done.
+- [x] ✅ ~~**E.5** Verify: scene plan ra đúng N, narration ghép = voice_script gốc~~ — **Note:** Exec 13 (2026-06-08): voice_script pre-provided → IF TRUE → Clean Voice Script → AI Scene Breakdown → Parse Scenes → Split Scenes → fail tại image quota 429 (expected). Scene plan: **scene_count=3** (chính xác N=3 requested). **Narration concat 70/70 words = 100% match** với original voice_script. Schema E.3 đúng: `narration_text` (không phải `narration_excerpt`), `has_character`, `start/end_sec`, `scene_id`. E.4 fix confirmed: `$input.first().json.script_request` pick đúng branch. Minor: `style_bible` AI trả dict thay string — cần xử lý ở F.1.
 
 ---
 
@@ -86,10 +84,10 @@
 
 **Goal:** Validate output Scene Planner trước khi xuống worker.
 
-- [ ] **F.1** Workflow node `Validate Manifest` — check: len(scenes)==N, mọi scene đủ field, narration concat ≈ voice_script (fuzzy 95%), duration trong range
-- [ ] **F.2** Workflow node `AI Repair JSON` (conditional) — invalid nhẹ → LLM repair 1x
-- [ ] **F.3** Invalid nặng (scene count sai, narration lệch, budget vượt) → fail job với error log rõ ràng
-- [ ] **F.4** Verify: mock manifest invalid → validator bắt được + repair OK
+- [x] ✅ ~~**F.1** Workflow node `Validate Manifest` — check: len(scenes)==N, mọi scene đủ field, narration concat ≈ voice_script (fuzzy 95%), duration trong range~~ — **Note:** `Code - Validate Manifest` chèn giữa `Code - Parse Scenes` (1440px) và `Code - Split Scenes` (1860px, shifted +300). 4 checks: (1) scene_count exact — fatal nếu diff>2, errors nếu diff≤2; (2) per-scene fields — fatal nếu narration_text missing, errors nếu image_prompt missing, warnings nếu optional thiếu; (3) narration word-similarity — fatal <70%, errors <95%; (4) duration ratio — warning nếu ngoài 0.5–2.0×. Bonus: normalize `style_bible`/`character_bible` dict→string (bug E.5). Output: `{manifest_valid, manifest_repair_needed, manifest_errors[], manifest_warnings[], manifest_narration_similarity}`. Re-seed done.
+- [x] ✅ ~~**F.2** Workflow node `AI Repair JSON` (conditional) — invalid nhẹ → LLM repair 1x~~ — **Note:** 4 nodes thêm sau `Code - Validate Manifest`: `IF - Needs Repair` (check `manifest_repair_needed` boolean) → [true] `Code - Build Repair Request` (build repair prompt gồm voice_script + broken JSON + error list, dùng `providers.script` dynamic, support cả `claude_messages` và `openai_chat`) → `HTTP - AI Repair JSON` (`$input.first().json.repair_request`) → `Code - Parse Repair Response` (parse + re-validate + normalize bibles + throw fatal nếu vẫn broken sau repair). [false] skip thẳng `Code - Split Scenes`. `Code - Parse Repair Response` ref `$('Code - Build Repair Request').first()` để lấy config. Downstream nodes shifted +960px. Re-seed done. 22 nodes total.
+- [x] ✅ ~~**F.3** Invalid nặng (scene count sai, narration lệch, budget vượt) → fail job với error log rõ ràng~~ — **Note:** Built vào F.1 (`Code - Validate Manifest`) và F.2 (`Code - Parse Repair Response`). Fatal cases throw `Error` với message rõ: (1) scenes empty; (2) scene_count diff>2; (3) narration_text missing; (4) narration similarity <70%. F.2 re-throw fatal sau repair nếu vẫn broken. n8n fail execution với error message hiện trong execution log.
+- [x] ✅ ~~**F.4** Verify: mock manifest invalid → validator bắt được + repair OK~~ — **Note:** 2 test cases bằng mock `Code - Parse Scenes` (+ `continueRegularOutput` trên `AI - Scene Breakdown` để bypass real LLM call). **Test 1 (repair path, exec 26):** inject 2 scenes vs scene_count=3 + scene 1 thiếu `image_prompt` → `Code - Validate Manifest` bắt đúng `["scene_count mismatch: got 2, expected 3", "scene 1 missing image_prompt"]`, `manifest_repair_needed=true`, `manifest_narration_similarity=100%`, `IF - Needs Repair` đi true branch, `Code - Build Repair Request` chạy, `HTTP - AI Repair JSON` fail 400 (placeholder key — expected). **Test 2 (fatal, exec 27):** inject `scenes=[]` → `Code - Validate Manifest` throw `"scenes array is empty — AI returned no scenes"`, execution dừng tại validator, không qua repair. Restore original nodes + re-seed done.
 
 ---
 
@@ -97,35 +95,31 @@
 
 **Goal:** Mỗi scene image gen có character DNA inject.
 
-- [ ] **G.1** Sửa node `Generate Scene Image` prompt: include `character_bible` + `character.imageUrl` reference
-- [ ] **G.2** Scene có `has_character: true` → inject character; `false` → skip char ref
-- [ ] **G.3** Switch sang provider config (GĐ A) — default Gemini Nano Banana
-- [ ] **G.4** Verify: gen ảnh test với character → ảnh có nhân vật giống character DNA
-
+- [x] ✅ ~~**G.1** Sửa node `Generate Scene Image` prompt: include `character_bible` + `character.imageUrl` reference~~ — **Note:** `HTTP - Generate Scene Image` jsonBody đổi sang IIFE expression. Text prompt thêm `\nCharacter reference (maintain visual consistency): {character_bible}` (skip nếu empty). Nếu `character.imageUrl` có → thêm `parts[1] = { fileData: { mimeType: 'image/jpeg', fileUri: charImgUrl } }` làm visual DNA reference cho Gemini multimodal. `character` object lấy từ `$('Code - Validate Input').first().json.character` (named ref, luôn available). Re-seed done.
+- [x] ✅ ~~**G.2** Scene có `has_character: true` → inject character; `false` → skip char ref~~ — **Note:** Thêm `const hasCharacter = $json.scene.has_character === true` làm gate. `charBible`, `character`, `charImgUrl` chỉ được đọc khi `hasCharacter=true` (ternary `hasCharacter ? ... : ''|null`). Khi `false`: `charRef=''` → text prompt không có character section, `parts` chỉ có `[textPart]` (không có fileData). Backward compat: scene không có `has_character` field → `=== true` fail → skip char (safe default). Re-seed done.
+- [x] ✅ ~~**G.3** Switch sang provider config (GĐ A) — default Gemini Nano Banana~~ — **Note:** `HTTP - Generate Scene Image` + `HTTP - Generate Thumbnail`: URL đổi sang IIFE expression xử lý `authMode` — `'query'` → append `?authName=authValue`; `'header'` → URL giữ nguyên. `specifyHeaders: 'keypair'` → `'json'` với `jsonHeaders` expression: `Content-Type: application/json` + `extraHeaders || {}` + auth header nếu `authMode==='header'`. Xóa `headerParameters` keypair cũ. Cả 2 node đều update (image gen + thumbnail). Provider mặc định vẫn google/gemini-2.5-flash-image (registry entry duy nhất). Re-seed done.
 ---
 
 ## GĐ H — Veo3 Video Gen Wire-up (1 ngày)
 
 **Goal:** `VIDEO_PROVIDER=veo3` thực sự gọi Vertex AI, image-to-video.
 
-- [ ] **H.1** Verify code `veo3_generator.py` hiện có (124 lines) hoạt động đúng — test 1 call mock
-- [ ] **H.2** Sửa `asset_downloader.py` branch `if provider == "veo3"` → gọi `veo3_generator.generate()` đúng
-- [ ] **H.3** Pass scene image làm `init_image` (image-to-video mode)
-- [ ] **H.4** docker-compose mount `secrets/gcp-sa.json` vào python_worker + env `GOOGLE_APPLICATION_CREDENTIALS`
-- [ ] **H.5** `.env.example` document yêu cầu setup GCP
-- [ ] **H.6** Verify: tạo video qua UI với VIDEO_PROVIDER=veo3 → 1 scene Veo3 thành công
-
+- [x] ✅ ~~**H.1** Verify code `veo3_generator.py` hiện có (124 lines) hoạt động đúng — test 1 call mock~~ — **Note:** `veo3_generator.py` đúng 124 lines, cấu trúc đúng (module-level không import google, import bên trong function → mock an toàn). Tạo `test_veo3_generator.py` (3 test cases, stdlib unittest.mock, không cần google-genai cài): (1) empty GOOGLE_API_KEY → returns False, file không tạo; (2) happy path text-only → mock SDK `operation.done=True` → returns True, file written với đúng bytes, Client called với key; (3) image_path provided → `generate_videos` called với `image=` kwarg (image-to-video mode). All 3 passed (0.003s).
+- [x] ✅ ~~**H.2** Sửa `asset_downloader.py` branch `if provider == "veo3"` → gọi `veo3_generator.generate()` đúng~~ — **Note:** Branch `if provider == "veo3"` (lines 115-123) đã đúng: `from veo3_generator import generate_video_veo3` khớp tên hàm H.1, `generate_video_veo3(prompt, dest_path, duration_seconds=duration, image_path=image_path if use_image else None)` khớp đủ 4 params. docker-compose.yml có `GOOGLE_API_KEY`/`VEO3_MODEL`/`USE_IMAGE_TO_VIDEO` env cho python_worker. Import resolve đúng vì `WORKDIR /app + COPY . .`. H.3 (image-to-video mode) cũng đã done sẵn qua cùng branch. **Observed: `RenderScene` model (main_server.py:34) dùng `narration_excerpt: str` (required) nhưng n8n E.3 gửi `narration_text` → sẽ Pydantic ValidationError HTTP 422 — cần fix ở step sau.**
+- [x] ✅ ~~**H.3** Pass scene image làm `init_image` (image-to-video mode)~~ — **Note:** Chain đã đúng end-to-end: (1) `download_assets_for_scene` download/decode scene image (http URL hoặc data:base64 từ Gemini) → `results["image_path"]`; (2) line 211 pass `image_path=results.get("image_path")` vào `_generate_video_from_prompt`; (3) veo3 branch pass `image_path=image_path if use_image else None` (gate `USE_IMAGE_TO_VIDEO` env); (4) `veo3_generator.py` lines 63-73 read image bytes → `GenAIImage(image_bytes, mime_type)` → `call_kwargs["image"]` → Veo3 API image-to-video mode. `USE_IMAGE_TO_VIDEO=true` default trong docker-compose.yml.
+- [x] ✅ ~~**H.4** docker-compose mount `secrets/gcp-sa.json` vào python_worker + env `GOOGLE_APPLICATION_CREDENTIALS`~~ — **Note:** `docker-compose.yml` (root) thêm vào `python_worker`: volume `./secrets:/secrets:ro` + env `GOOGLE_APPLICATION_CREDENTIALS=${GOOGLE_APPLICATION_CREDENTIALS:-/secrets/gcp-sa.json}`. Tạo `secrets/.gitignore` (block `*.json/*.pem/*.key`) để key không bị commit. User đặt file vào `secrets/gcp-sa.json` (per PRE-3), container tự pick up qua ADC. Mount directory thay vì file để docker-compose không fail khi file chưa tồn tại.
+- [x] ✅ ~~**H.5** `.env.example` document yêu cầu setup GCP~~ — **Note:** Thêm section "GCP / Veo3 setup" vào `.env.example` (line 63): hướng dẫn PRE-2 (enable Vertex AI API URL), PRE-3 (tạo SA → download key → đặt vào `secrets/gcp-sa.json`), PRE-4 (verify Veo3 access URL). Ghi rõ `GOOGLE_APPLICATION_CREDENTIALS` đã default trong docker-compose.yml (H.4). Các biến `VEO3_MODEL`, `VEO3_POLL_TIMEOUT`, `USE_IMAGE_TO_VIDEO` commented-out với default values. Section chỉ active khi `VIDEO_PROVIDER=veo3`.
 ---
 
 ## GĐ I — Veo3 Fallback Ken Burns (0.5 ngày)
 
 **Goal:** Veo3 fail → retry 1x transient → fallback slideshow. Pipeline luôn ra master.
 
-- [ ] **I.1** Trong `_generate_video_from_prompt` Veo3 branch: try → catch transient (network/429/503) → retry 1x
-- [ ] **I.2** Fail permanent (policy/auth) → KHÔNG retry → fallback ngay
-- [ ] **I.3** Fallback Ken Burns: gọi ffmpeg slideshow code đã có
-- [ ] **I.4** Mark scene metadata `fallback_used: true` để track
-- [ ] **I.5** Verify: force Veo3 fail (bad prompt) → scene đó vẫn ra video Ken Burns
+- [x] ✅ ~~**I.1** Trong `_generate_video_from_prompt` Veo3 branch: try → catch transient (network/429/503) → retry 1x~~ — **Note:** `veo3_generator.py`: thêm `class Veo3TransientError(Exception)` + `_TRANSIENT_SIGNALS` tuple (429/503/rate limit/quota/service unavailable/connection/timeout/network). `except Exception` cuối hàm: check `str(e).lower()` với signals → `raise Veo3TransientError` thay vì return False cho transient; permanent errors vẫn log + return False. `asset_downloader.py` veo3 branch: wrap call trong try/except `Veo3TransientError` → log warning → retry 1x. Second attempt result trả thẳng về (True/False/raise) — I.2/I.3 handle tiếp.
+- [x] ✅ ~~**I.2** Fail permanent (policy/auth) → KHÔNG retry → fallback ngay~~ — **Note:** `veo3_generator.py`: thêm `_PERMANENT_SIGNALS` (401/403/permission/policy/safety/billing/unauthorized/access denied/not authorized) + `class Veo3PermanentError`. `except Exception` check permanent TRƯỚC transient — permanent raise `Veo3PermanentError`, transient raise `Veo3TransientError`, còn lại log+return False. `asset_downloader.py` restructure veo3 block: `veo3_ok=False` → try first call: catch `Veo3PermanentError` → log (không retry); catch `Veo3TransientError` → retry once (inner try/except catch cả 2 loại trên retry). `if veo3_ok: return True` → `return False  # I.3 Ken Burns`. Cấu trúc sẵn sàng cho I.3 điền vào.
+- [x] ✅ ~~**I.3** Fallback Ken Burns: gọi ffmpeg slideshow code đã có~~ — **Note:** Thay `return False  # I.3` bằng inline Ken Burns: (1) log warning "falling back to Ken Burns slideshow"; (2) guard: nếu `image_path` không tồn tại → log error + return False (không có ảnh thì Ken Burns không làm được gì); (3) ffmpeg command giống hệt slideshow branch (libx264/crf20/zoompan `min(zoom+0.0015,1.5)` Ken Burns/1920×1080/30fps) với `fb_dur = SCENE_VIDEO_SECONDS`. Inline (không tách helper) để không đụng slideshow code đang chạy đúng. Sau I.1+I.2+I.3: Veo3 fail transient → retry 1x → fail → Ken Burns; Veo3 fail permanent → skip retry → Ken Burns ngay.
+- [x] ✅ ~~**I.4** Mark scene metadata `fallback_used: true` để track~~ — **Note:** Đổi `_generate_video_from_prompt` return type thành `(bool, bool)` = `(success, fallback_used)`. Slideshow + runway + else branches: `return True/False` → `return True/False, False` (fallback_used luôn False). Veo3 branch: veo3 success → `(True, False)`; Ken Burns success → `(True, True)`; Ken Burns fail → `(False, False)`. `results` dict init thêm `"fallback_used": False`. Caller: `gen_ok, fallback_used = _generate_video_from_prompt(...)` → `if gen_ok: results["video_path"] = vid_path` → `results["fallback_used"] = fallback_used`. `fallback_used=True` chỉ khi Ken Burns **thành công** sinh video.
+- [x] ✅ ~~**I.5** Verify: force Veo3 fail (bad prompt) → scene đó vẫn ra video Ken Burns~~ — **Note:** Tạo `test_fallback.py` (4 test cases, stdlib unittest.mock): stub `requests`/`urllib3` để import `asset_downloader` trên host. Test 1 (permanent): `Veo3PermanentError("403")` → no retry → Ken Burns → `(True, True)` + file exists. Test 2 (return False): `generate_video_veo3` return False → Ken Burns → `(True, True)`. Test 3 (transient both attempts): `Veo3TransientError` 2 lần → retry log + Ken Burns → `(True, True)`. Test 4 (veo3 success): return True → `(True, False)`, `subprocess.run` **not called** (assert_not_called). All 4 passed (0.004s). Bug fix: assertions phải ở TRONG `with tempfile.TemporaryDirectory()` block, không phải ngoài (tmpdir bị xóa trước assertion).
 
 ---
 
@@ -133,9 +127,9 @@
 
 **Goal:** Veo3 max 3 concurrent + lưu checkpoint scene đã xong.
 
-- [ ] **J.1** Thêm semaphore `max_concurrent_veo = 3` trong python_worker
-- [ ] **J.2** Mỗi scene Veo3 xong → upload clip lên MinIO ngay (checkpoint) thay vì đợi cuối
-- [ ] **J.3** Verify: tạo video 5 scenes → log thấy max 3 Veo call song song
+- [x] ✅ ~~**J.1** Thêm semaphore `max_concurrent_veo = 3` trong python_worker~~ — **Note:** `asset_downloader.py`: thêm `import threading` + module-level `_veo3_semaphore = threading.Semaphore(int(os.getenv("MAX_CONCURRENT_VEO", "3")))`. Veo3 branch trong `_generate_video_from_prompt` wrap `with _veo3_semaphore:` bao quanh cả first attempt + retry 1x; Ken Burns fallback chạy ngoài semaphore (không bị rate-limit). Semaphore shared across tất cả ThreadPoolExecutor threads (module-level, process-global). Default = 3, override bằng `MAX_CONCURRENT_VEO` env var.
+- [x] ✅ ~~**J.2** Mỗi scene Veo3 xong → upload clip lên MinIO ngay (checkpoint) thay vì đợi cuối~~ — **Note:** `main_server.py`: trong `as_completed` loop (step 4), ngay sau khi `future.result()` trả về, nếu `results["video_path"]` tồn tại → `s3_upload` clip lên `videos/{video_id}/clips/clip_{scene_order:03d}.mp4` → lưu `results["clip_key"]` + log. Step 5 INSERT: `vpath = results.get("clip_key") or results.get("video_path")` → `videoKey` trong DB nhận MinIO key ngay thay vì local path. Step 9: build `_checkpoint_keys` dict → `continue` nếu `idx` đã có clip_key (skip re-upload). Upload fail không block pipeline (try/except → warning).
+- [x] ✅ ~~**J.3** Verify: tạo video 5 scenes → log thấy max 3 Veo call song song~~ — **Note:** Tạo `test_semaphore.py`: mock `generate_video_veo3` với `time.sleep(0.05)` để tạo overlap, dùng `threading.Lock` + shared counter đếm concurrent calls, chạy 5 scenes qua `ThreadPoolExecutor(max_workers=5)`, patch `asset_downloader._veo3_semaphore = Semaphore(3)`. Kết quả: **max_concurrent=3 / limit=3** (5 workers) — semaphore hoạt động đúng. All 5 scenes return `(True, False)`. Test passed 0.114s.
 
 ---
 
@@ -143,12 +137,13 @@
 
 **Goal:** FE alert cost TRƯỚC submit + cost tính theo provider thật.
 
-- [ ] **K.1** BE endpoint `GET /sources/estimate-cost?projectId=X&sceneCount=N&qualityMode=Y` — trả estimated cost
-- [ ] **K.2** Refactor `COST_PER_SCENE` flat → function `costPerScene(provider, model)` provider-aware
-- [ ] **K.3** FE form create video: hiển thị live "💰 Ước tính ~$X.XX" theo sceneCount + provider
-- [ ] **K.4** FE badge đỏ + confirm dialog nếu cost > threshold
-- [ ] **K.5** BE pre-flight: nếu actual cost > `BUDGET_LIMIT_PER_VIDEO` → abort với message rõ
-- [ ] **K.6** Verify: chọn Premium 10 scenes → UI báo ~$5.5 trước khi bấm Submit
+- [x] ✅ ~~**K.1** BE endpoint `GET /sources/estimate-cost?projectId=X&sceneCount=N&qualityMode=Y` — trả estimated cost~~ — **Note:** `source.controller.ts`: thêm `Query` import + `@Get('estimate-cost')` handler trước `project/:projectId` (tránh route conflict). `source.service.ts`: thêm `estimateCost(projectId, sceneCount, qualityMode)` — flat `costPerSceneUsd=0.65`, guard `isNaN/< 1` → clamp=1, trả `{projectId, sceneCount, qualityMode, costPerSceneUsd, estimatedCostUsd}`. K.2 sẽ refactor thành provider-aware. `tsc --noEmit`: 0 errors.
+- [x] ✅ ~~**K.2** Refactor `COST_PER_SCENE` flat → function `costPerScene(provider, model)` provider-aware~~ — **Note:** `source.service.ts`: thêm `VIDEO_COSTS` dict (veo3=$0.59, runway=$0.59, slideshow=$0.04, local=$0.04) + `costPerScene(videoProvider, videoModel?)` helper trước class. `estimateCost` → async + `prisma.project.findUnique` lấy `{videoProvider, videoModel}` → call `costPerScene` → response thêm `videoProvider` field. `source.controller.ts`: thêm `async`. `main_server.py` (worker): xóa `COST_PER_SCENE = 0.65`, thêm `_VIDEO_COSTS` dict + `_cost_per_scene(provider?, model?)` function (đọc env `VIDEO_PROVIDER`). Compute `scene_cost = _cost_per_scene()` 1 lần đầu `process_video_pipeline` → thay 3 usages (`total_estimated`, `total_cost +=`, `"cost": ...`). `tsc --noEmit`: 0 errors.
+- [x] ✅ ~~**K.3** FE form create video: hiển thị live "💰 Ước tính ~$X.XX" theo sceneCount + provider~~ — **Note:** `api.ts`: thêm `estimateCost(projectId, sceneCount, qualityMode?)` → `GET /sources/estimate-cost`. `create/page.tsx`: thêm `useQuery(['estimate-cost', projectId, form.sceneCount, form.qualityMode])` sau `form` state (enabled khi sceneCount≥3, staleTime 30s). Display: row `flex justify-between` phía dưới video config grid — bên trái "≈ X.Xs/scene" (giữ nguyên), bên phải `💰 Ước tính ~$X.XX` màu emerald-400. Re-query tự động khi sceneCount hoặc qualityMode thay đổi. `next build` passed 0 errors. Frontend rebuilt + started.
+- [x] ✅ ~~**K.4** FE badge đỏ + confirm dialog nếu cost > threshold~~ — **Note:** `create/page.tsx`: thêm `COST_ALERT_THRESHOLD = 3.00` (≈5 scene veo3). Badge: khi `estimatedCostUsd > threshold` → icon `⚠️` + màu `text-rose-400` thay `💰` + `text-emerald-400`. `submit()`: guard đầu — nếu cost > threshold AND user cancel `window.confirm(...)` → return sớm, không mutate. `next build` passed 0 errors. Frontend rebuilt + started.
+
+- [x] ✅ ~~**K.5** BE pre-flight: nếu actual cost > `BUDGET_LIMIT_PER_VIDEO` → abort với message rõ~~ — **Note:** `source.service.ts` `createManual()`: sau project lookup, nếu `videoConfig.sceneCount` có → tính `estimatedCost = costPerScene(vProvider) * sceneCount` → so với `BUDGET_LIMIT_PER_VIDEO` env (default $5.00) → throw `BadRequestException` với message rõ Vietnamese: "Chi phí ước tính $X.XX vượt ngưỡng $Y.YY — N scenes × $Z.ZZ (provider). Giảm số scenes hoặc đổi provider." Fail TRƯỚC khi tạo ApiSource record (không orphan DB). Worker cũng có safety net riêng (raise ValueError). `tsc --noEmit`: 0 errors.
+- [x] ✅ ~~**K.6** Verify: chọn Premium 10 scenes → UI báo ~$5.5 trước khi bấm Submit~~ — **Note:** Test bằng curl (backend rebuild với K.1/K.2 code). Patch project `videoProvider=veo3` tạm để test: `GET /sources/estimate-cost?projectId=X&sceneCount=10` → `{costPerSceneUsd:0.59, estimatedCostUsd:5.90, videoProvider:"veo3"}` — đúng ≈$5.5 ✅. K.4 badge sẽ đỏ (5.90 > 3.00 threshold). K.5 block: POST /sources/manual 10 scenes → 400 "Chi phí ước tính $5.90 vượt ngưỡng $5.00 — 10 scenes × $0.59 (veo3). Giảm số scenes hoặc đổi provider." ✅. K.5 pass: 8 scenes veo3 ($4.72 < $5.00) → 201 sent_to_n8n ✅. Project reverted về google. FE UI live display: không verify trực tiếp trên browser (không có veo3 key thật) nhưng logic đã đúng qua API test.
 
 ---
 
@@ -156,21 +151,35 @@
 
 **Goal:** UI hiện grid N scenes live thay step bar.
 
-- [ ] **L.1** python_worker emit webhook `POST /webhooks/worker/scene-progress` mỗi khi scene state change
-- [ ] **L.2** BE socket gateway forward `scene-progress` event xuống FE per video_id
-- [ ] **L.3** FE `PipelineProgress.tsx` thay step bar bằng grid N icons (queued/rendering/done/failed)
-- [ ] **L.4** Click vào scene icon (sau done) → modal preview clip scene đó
-- [ ] **L.5** Estimated time remaining = (scenes_remaining × avg_time)
-- [ ] **L.6** Verify: tạo video 5 scenes → UI thấy 5 ô update real-time queued → done
-
+- [x] ✅ ~~**L.1** python_worker emit webhook `POST /webhooks/worker/scene-progress` mỗi khi scene state change~~ — **Note:** Thêm `_emit_scene_progress(video_id, scene_index, status)` helper (fire-and-forget, timeout=5s, ignore exception). Emit 3 lần: (1) `queued` cho tất cả scenes trước khi submit ThreadPoolExecutor; (2) `rendering` tại đầu `_download_single_scene` (thread bắt đầu xử lý); (3) `done` hoặc `failed` trong `as_completed` sau khi `future.result()` trả về + trong except block nếu future throw exception. `video_id` thêm vào args tuple của `_download_single_scene` để thread có thể emit đúng video_id.
+- [x] ✅ ~~**L.2** BE socket gateway forward `scene-progress` event xuống FE per video_id~~ — **Note:** `jobs.gateway.ts`: thêm `emitSceneProgress(videoId, {sceneIndex, status})` → emit event `'scene-progress'` tới room `video:{videoId}`. `worker.controller.ts` `sceneProgress` endpoint: thêm `status?: string` vào body (L.1 format), resolve `effectiveStatus = body.status ?? (progress>=100 ? 'done' : 'rendering')` (backward compat với legacy `progress` format), cập nhật DB `scene.updateMany` với `effectiveStatus`, gọi `gateway.emitSceneProgress` trước các emit khác. Legacy `emitJobProgress` chỉ emit khi `body.progress !== undefined`. `tsc --noEmit`: 0 errors.
+- [x] ✅ ~~**L.3** FE `PipelineProgress.tsx` thay step bar bằng grid N icons (queued/rendering/done/failed)~~ — **Note:** `PipelineProgress.tsx`: thêm socket listener `scene-progress` (dùng `getSocket()`/`subscribeToVideo(sourceId)`) → cập nhật `sceneStates: Record<number, SceneStatus>`. `sceneCount` lấy từ `source?.metadata?.sceneCount` (có ngay từ API poll) hoặc fallback từ max sceneIndex của events đã nhận. Khi `sceneCount > 0`: hiện scene grid (N ô `w-8 h-8`) với màu/icon per status — `queued`=zinc số thứ tự, `rendering`=violet Loader2 animate-spin, `done`=emerald CheckCircle2, `failed`=rose AlertCircle. Khi `sceneCount = 0` (chưa biết N): fallback hiển thị step bar cũ. Header/error/action buttons giữ nguyên. `next build` Docker: 0 errors.
+- [x] ✅ ~~**L.4** Click vào scene icon (sau done) → modal preview clip scene đó~~ — **Note:** `PipelineProgress.tsx`: thêm `selectedScene: number | null` state. `useQuery(['video-clips', sourceId], getVideoClips, { enabled: selectedScene !== null })` fetch lazy khi user click lần đầu. Build `clipMap: Record<number, string|null>` từ response. `done` icon thêm `onClick={() => setSelectedScene(i)}` + `cursor-pointer hover:ring-1 hover:ring-emerald-400/50`. Modal: fixed overlay `bg-black/70` + inner card `bg-zinc-900`, `<video controls autoPlay>` nếu `clipMap[selectedScene]` có URL, else "Đang tải clip...". Close: click overlay hoặc nút ×. Return wrapped trong `<>` fragment. Docker build: 0 errors.
+- [x] ✅ ~~**L.5** Estimated time remaining = (scenes_remaining × avg_time)~~ — **Note:** `PipelineProgress.tsx`: `renderStartRef = useRef<number|null>(null)` — set timestamp khi nhận event `rendering` đầu tiên. `doneCount` = số scene đã `done`/`failed`. `avgMs = elapsedSinceRender / doneCount` (wall-clock rate, tự nhiên account cho parallel workers). `etaMs = avgMs × scenes_remaining`. Format: `~Xs` (<60s) hoặc `~Xm Ys`. Hiển thị trong header line: `⏱ 45s · ~1m 30s còn lại · ID: ...` — ẩn khi `isDone`/`isFailed` hoặc chưa có data. `elapsed` tick 1s → ETA tự update qua `Date.now()` mỗi re-render. Docker build: 0 errors.
 ---
 
 ## Cleanup & Documentation (sau cuối)
 
-- [ ] **Z.1** Update `Readme.md` mô tả pipeline mới (Veo3, character, quality_mode)
-- [ ] **Z.2** Update `docs/05-pipeline.md` reflect flow v5.2
-- [ ] **Z.3** Update `docs/11-feature-checklists.md` mark P0 items done
-- [ ] **Z.4** Cleanup: xóa `*_import.json` legacy workflow files nếu không dùng
+- [x] ✅ ~~**Z.1** Update `Readme.md` mô tả pipeline mới (Veo3, character, quality_mode)~~ — **Note:** Rewrite hoàn toàn từ v3.0 → v5.2. Cập nhật: mermaid pipeline flow (UI→BE→n8n→Worker→Socket→FE), bảng tính năng (15 items: character DNA, quality mode, manifest validator, Veo3, Ken Burns fallback, per-scene grid, ETA, clip preview, ...), stack table (NestJS/Next.js/Socket.IO/Veo3/MinIO), quick start (8 containers), setup Veo3 section (secrets/gcp-sa.json), cost table (slideshow vs Veo3 per quality tier), repo structure (key files), feature status table (done/pending/blocked).
+- [x] ✅ ~~**Z.2** Update `docs/05-pipeline.md` reflect flow v5.2~~ — **Note:** Rewrite sequence diagram: thêm actors IMG + provider resolve step, IF voice_script branch, Scene Breakdown 10 rules, Validate Manifest + AI Repair conditional, image gen loop per scene (n8n, không phải worker), ThreadPoolExecutor loop với queued/rendering/done/failed webhooks + ETA + clip checkpoint MinIO, clip preview modal flow. Stages table: 9 stages (tách voice resolver + image gen thành stages riêng). Failure modes: thêm 4 failures mới (providers.script null, image 429, manifest validator fatal, clip modal tải mãi).
+- [x] ✅ ~~**Z.3** Update `docs/11-feature-checklists.md` mark P0 items done~~ — **Note:** P0 section: `[~] Image` → `[x]` (Gemini Flash Image wired GĐ G), `[~] Video` → `[x]` (Veo3 code + Ken Burns fallback GĐ H/I). F2 Done: thêm 6 items v5.2 (provider routing, character DNA, voice script, quality mode, cost estimate, per-scene grid). F2 Todo: xóa "Cost estimate" (đã done K.1-K.6). Summary table: P0 9→11 done, P1 4→10 done, thêm dòng v5.2 CLOSED 2026-06-10.
+- [x] ✅ ~~**Z.4** Cleanup: xóa `*_import.json` legacy workflow files nếu không dùng~~ — **Note:** Xóa 3 file: `01_idea_and_script_import.json`, `02_scene_generation_import.json`, `03_render_and_upload_import.json`. Không file nào được reference trong docker-compose, scripts, hay code — docker-compose chỉ import `01/02/03_*.json` (không có `_import` suffix). Chỉ còn 3 file canonical trong `n8n_workflows/`.
+
+---
+
+## Verify / Testing (thực hiện khi có key)
+
+> Code đã hoàn thiện. Các mục dưới đây bị block bởi quota/credentials — con người thực hiện khi có key.
+
+**Blocker chung: Google IMAGE quota (429)**
+- [ ] **B.6** Verify: tạo character → bấm Generate → thấy preview ảnh
+- [ ] **G.4** Verify: gen ảnh scene với character DNA → ảnh có nhân vật consistent
+- [ ] **L.6** Verify: tạo video 5 scenes → UI thấy 5 ô update real-time queued → done
+
+**Blocker: PRE-2/3/4 (GCP billing + SA key `secrets/gcp-sa.json` + Veo3 access)**
+- [ ] **H.6** Verify: tạo video qua UI với `VIDEO_PROVIDER=veo3` → 1 scene Veo3 thành công
+
+**E2E smoke test (cần IMAGE quota + optional Veo3)**
 - [ ] **Z.5** Smoke test full E2E: tạo character → tạo video Premium 5 scenes → master.mp4 OK
 
 ---

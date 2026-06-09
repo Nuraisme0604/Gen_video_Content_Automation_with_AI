@@ -1,11 +1,8 @@
-# AI YouTube Content Engine v3.0
+# AI YouTube Content Engine v5.2
 
-**Phiên bản:** 3.0.0
-**Mục tiêu:** Tự động hóa quy trình sản xuất video YouTube cho **bất kỳ niche nào**, dựa trên việc phân tích một kênh YouTube tham chiếu.
-**Output:** Video `master_video.mp4` + thumbnail + subtitle + upload draft lên YouTube.
-
-> Đầu vào: 1 URL kênh YouTube + niche + độ dài mong muốn.
-> Đầu ra: video draft trên YouTube.
+**Phiên bản:** 5.2.0
+**Mục tiêu:** Tự động hóa quy trình sản xuất video YouTube — provider-agnostic, character DNA, quality tiers.
+**Output:** Video `master.mp4` + thumbnail + per-scene clips lưu trên MinIO.
 
 ---
 
@@ -13,147 +10,140 @@
 
 ```mermaid
 graph TB
-    INPUT["📥 Input<br/>channel_url + niche + duration"]
-    YT_API["🔍 YouTube Data API v3<br/>Fetch real channel data<br/>(subscribers, top 10 videos, stats)"]
-    GPT_TOPIC["💡 GPT-5.4-mini Topic<br/>Phân tích pattern → topic mới"]
-    GPT_ROUGH["✍️ GPT-5.4-mini Rough Script<br/>15/20 phút theo target_duration"]
-    CLAUDE["🎨 Claude Opus 4.7 Refine<br/>Viết lại cho hay (retention + emotion)"]
-    QA["🔍 GPT-5.4-mini QA Gate<br/>Score ≥ 75 (sequential)"]
-    SCENES["🎬 GPT-5.4-mini Scene Breakdown<br/>~110 scenes × 8s + image prompts"]
-    DALLE["🖼️ gpt-image-2<br/>Scene images (1536x1024)"]
+    UI["🖥️ Web UI\nTạo project → nhập title/script\nchọn character, quality_mode, sceneCount"]
+    BE["⚙️ Backend (NestJS)\nResolve API keys từ DB\nPush payload xuống n8n"]
+    N8N["🔄 n8n Workflow 02\nVoice Script Resolver (LLM)\nScene Planner (10 rules)\nManifest Validator + AI Repair\nImage Gen per scene"]
+    WORKER["🐍 Python Worker\nThreadPoolExecutor (parallel)\nper-scene progress webhook"]
+    MINIO["🗄️ MinIO\nClip checkpoint per scene"]
+    FE_LIVE["📊 FE Progress Grid\nN icons queued→rendering→done\nETA live"]
 
-    subgraph WORKER["🐍 Python Worker (parallel)"]
-        ELEVEN["🎙️ ElevenLabs voiceover"]
-        VEO["🎥 Veo3 / Runway video"]
-        MUSIC["🎵 ElevenLabs Music BGM<br/>(emotion-aware, official API)"]
-        ASSEMBLE["🎞️ MoviePy assemble<br/>+ audio ducking"]
-        SUBS["📝 SRT + (optional) burn-in"]
-        THUMB["📸 Thumbnail variants<br/>(download DALL-E URL → 3 variants)"]
-    end
-
-    UPLOAD["📤 YouTube draft + Telegram"]
-
-    INPUT --> YT_API --> GPT_TOPIC --> GPT_ROUGH --> CLAUDE --> QA
-    QA -->|pass| SCENES --> DALLE --> WORKER --> UPLOAD
-    QA -->|fail| TELEGRAM_FAIL["⚠️ Telegram alert"]
+    UI --> BE --> N8N --> WORKER
+    WORKER -->|"scene-progress webhook"| BE
+    BE -->|"Socket.IO scene-progress"| FE_LIVE
+    WORKER -->|"clip upload"| MINIO
+    WORKER -->|"render-complete"| BE
 ```
 
 ---
 
-## 2. Đặc điểm chính
+## 2. Tính năng chính
 
 | Tính năng | Mô tả |
 |---|---|
-| **Channel-aware topic** | Phân tích kênh tham chiếu THẬT qua YouTube Data API, không bịa số liệu |
-| **Multi-AI scriptwriting** | GPT viết kịch bản thô → Claude refine để tối ưu retention |
-| **Sequential QA gate** | Tự chấm điểm 0-100, fail-fast nếu < `MIN_QA_SCORE` (chạy TRƯỚC scene breakdown để không tốn tiền DALL-E khi script bị reject) |
-| **Emotion-aware BGM** | ElevenLabs Music generate nhạc instrumental khớp `core_emotion` của topic (melancholic / tense / uplifting...) — official API |
-| **Adaptive BGM duration** | BGM tự gen đúng độ dài video (cap 10min API), loop với crossfade nếu cần |
-| **3-layer audio mix** | Voice 100% + Veo3 native ambient/SFX 30% + BGM 15% — KHÔNG vứt Veo3 native audio như trước |
-| **Image-to-video continuity** | DALL-E image → Veo 3.1 initial frame → visual giữa scene image và video clip khớp nhau |
-| **Subtitle dual-mode** | `.srt` cho YouTube CC, hoặc burn-in (ffmpeg) cho TikTok/Shorts |
-| **Cost guard** | Pre-check budget, abort nếu estimate vượt `BUDGET_LIMIT_PER_VIDEO` |
-| **Generic niche** | Đổi 4 dòng env → sản xuất nội dung niche khác, không sửa code |
+| **Provider-agnostic routing** | Script/Image/Video provider chọn per-project qua UI, không hardcode. BE resolve key + URL động |
+| **Character library** | Tạo nhân vật có `name + description`. Generate ảnh nhân vật bằng Gemini → inject làm DNA vào prompt image gen |
+| **Character DNA** | Scene có `has_character=true` → image prompt + character_bible + ảnh nhân vật (multimodal ref) → visual consistency |
+| **Quality mode** | `draft` (≤3 scenes, $0.12) / `standard` (≤5, $0.20) / `premium` (≤8, $0.32) — cap sceneCount tự động |
+| **Voice script resolver** | Nhập lời thoại sẵn → clean nhẹ; để trống → LLM sinh từ title + style |
+| **AI Scene Planner (10 rules)** | Narration verbatim, sentence boundaries, word balance ±20%, exact scene count |
+| **Manifest validator + AI repair** | Validate output JSON (similarity, fields, count) → repair 1x nếu lỗi nhẹ → fail-fast nếu nặng |
+| **Veo3 video gen** | `VIDEO_PROVIDER=veo3` → Vertex AI Veo 3.1, image-to-video mode; retry transient → Ken Burns fallback |
+| **Ken Burns fallback** | Veo3 fail permanent/transient → ffmpeg zoompan slideshow, pipeline không bao giờ stuck |
+| **Semaphore Veo3** | Max 3 concurrent Veo call (override `MAX_CONCURRENT_VEO`) |
+| **Scene checkpoint** | Mỗi scene done → upload clip lên MinIO ngay, không mất nếu worker crash |
+| **Cost guard** | BE pre-flight estimate vs `BUDGET_LIMIT_PER_VIDEO`; FE badge đỏ + confirm dialog nếu > $3 |
+| **Per-scene progress grid** | N ô realtime: queued (xám) → rendering (violet spinner) → done (emerald) → failed (rose) |
+| **ETA** | `avg_wall_clock / doneCount × remaining` — hiển thị header, cập nhật mỗi giây |
+| **Clip preview** | Click ô done → modal `<video autoPlay>` xem clip scene đó |
 
 ---
 
 ## 3. Stack công nghệ
 
-- **Orchestration:** n8n (Docker)
-- **AI Text:** OpenAI GPT-5.4-mini + Anthropic Claude Opus 4.7
-- **AI Image:** OpenAI `gpt-image-2` (size `1536x1024`)
-- **AI Video:** Google Veo 3.1 (default) hoặc Runway Gen-4 Turbo
-- **AI Voice:** ElevenLabs (`eleven_multilingual_v2`)
-- **AI Music:** ElevenLabs Music (`music_v1`) — **official API** (Suno deprecated vì không có public API)
-- **YouTube data:** YouTube Data API v3
-- **Render:** MoviePy + FFmpeg (Python worker)
-- **DB:** PostgreSQL 15
-- **Notifications:** Telegram Bot API
-- **Deploy:** Docker Compose
+| Layer | Công nghệ |
+|---|---|
+| **Orchestration** | n8n (Docker), workflow tự import + activate lần đầu |
+| **Backend** | NestJS + Prisma + PostgreSQL 15 |
+| **Frontend** | Next.js 14 (App Router) + TailwindCSS + Socket.IO client |
+| **Realtime** | Socket.IO gateway `/jobs`, room `video:{videoId}` |
+| **AI Script** | Google Gemini Flash (default) hoặc Anthropic Claude (PRE-1) |
+| **AI Image** | Google Gemini Flash Image (Gemini multimodal, query-auth) |
+| **AI Video** | Veo 3.1 via Vertex AI SDK (Veo3) hoặc ffmpeg Ken Burns (slideshow) |
+| **Storage** | MinIO (S3-compatible) — clips, images, master video, thumbnails |
+| **Queue** | BullMQ (Redis) cho background jobs |
+| **Notifications** | Telegram Bot API |
 
 ---
 
 ## 4. Cài đặt
 
-### 4.1 Quick start (máy mới — không cần API key trong .env)
+### 4.1 Quick start
 
 ```bash
 git clone <repo-url>
 cd Gen_video_Content_Automation_with_AI
-cp .env.example .env                 # CHỈ chứa cấu hình hạ tầng (DB pass, ports)
-docker compose up -d --build         # 7 container: postgres, redis, minio, n8n, backend, frontend, worker
+cp .env.example .env
+docker compose up -d --build
 ```
 
-Stack chạy lên xong, mở 3 URL:
+8 container khởi động: `postgres`, `redis`, `minio`, `n8n`, `n8n_init`, `backend`, `frontend`, `python_worker`.
 
 | URL | Mục đích |
 |---|---|
-| http://localhost:3000 | **Web UI** — toàn bộ thao tác user |
-| http://localhost:5678 | n8n admin (workflows tự import lần đầu — chỉ vào khi cần sửa) |
+| http://localhost:3000 | **Web UI** — toàn bộ thao tác |
+| http://localhost:5678 | n8n admin (workflows tự import, chỉ vào khi cần debug) |
 | http://localhost:9001 | MinIO console (xem file sinh ra) |
 
-### 4.2 Cấu hình lần đầu (qua UI, không sửa file)
+### 4.2 Cấu hình lần đầu (qua UI)
 
-1. **Mở http://localhost:3000** → Tạo project mới (tên bất kỳ)
-2. **Mở http://localhost:3000/api-sources → "+ Thêm key"**:
-   - Paste API key của bạn (Gemini `AIzaSy...`, OpenAI `sk-...`, ElevenLabs `xi-...`, ...)
-   - System auto-detect provider + capability
-   - Bấm "Test kết nối" → xác nhận key hợp lệ → Lưu
-   - Key được mã hoá AES-256-GCM trong DB, **không** lưu vào file
-3. **n8n setup**: workflows tự import + activate lần đầu container start (qua service `n8n_init` trong compose). Vào http://localhost:5678 chỉ cần khi muốn sửa workflow thủ công.
+1. **Tạo project** tại http://localhost:3000 → đặt tên, chọn provider mặc định
+2. **Thêm API key** tại http://localhost:3000/api-sources → paste key → hệ thống auto-detect provider+capability → Lưu (mã hoá AES-256-GCM)
+3. **(Optional) Tạo character** tại tab Characters → nhập tên + mô tả → Generate ảnh (cần Google IMAGE quota)
+4. **Tạo video** → chọn quality mode, sceneCount, character (tuỳ chọn), nhập/để trống voice script → Submit
 
-**Xong**. Pipeline lấy key từ DB qua BE internal endpoint, không phụ thuộc `.env`.
+Pipeline tự chạy, UI hiện grid per-scene realtime.
 
-### 4.3 Tại sao API key không trong `.env`?
+### 4.3 Setup Veo3 (tuỳ chọn)
 
-| Vấn đề `.env` | Cách giải quyết |
-|---|---|
-| Lộ key khi push Git | `.gitignore` exclude `.env`, nhưng key gốc trong DB |
-| Phải copy `.env` qua máy mới | Máy mới chỉ cần `cp .env.example .env` (không có key) → add key qua UI |
-| Không xoay vòng được | UI cho phép thêm nhiều key cùng provider, BE pick key có quotaUsed thấp nhất |
-| Plaintext file trên disk | Key trong DB mã hoá, decrypt chỉ khi gọi internal endpoint với HMAC |
+Veo3 cần GCP credentials ngoài Google AI Studio key:
 
-**Khi clone repo trên máy khác**: `cp .env.example .env && docker compose up`. Vào UI add key. Done. Không có bước "kéo file `.env` theo".
+```bash
+# 1. Bật billing GCP + enable Vertex AI API
+# 2. Tạo Service Account role aiplatform.user → download key
+cp your-sa-key.json secrets/gcp-sa.json
+
+# 3. Đổi provider trong .env
+echo "VIDEO_PROVIDER=veo3" >> .env
+docker compose up -d python_worker
+```
+
+Nếu không có Veo3, mặc định `VIDEO_PROVIDER=slideshow` (Ken Burns ffmpeg, miễn phí).
 
 ---
 
-## 5. Test chạy
+## 5. API keys cần có
 
-```bash
-curl -X POST http://localhost:5678/webhook/start-pipeline \
-  -H "Content-Type: application/json" \
-  -d '{
-    "channel_url": "https://www.youtube.com/@MrBeast",
-    "channel_niche": "viral entertainment",
-    "language": "English",
-    "target_duration_minutes": 15
-  }'
-```
+| Key | Service | Bắt buộc |
+|---|---|---|
+| Google AI Studio `AIza...` | Gemini script + Gemini image | **Có** (script). Image cần quota riêng |
+| `secrets/gcp-sa.json` | Vertex AI (Veo3) | Không (dùng slideshow nếu thiếu) |
+| Anthropic `sk-ant-...` | Claude script (thay Gemini) | Không |
+| ElevenLabs | Voiceover | Không (pipeline chạy không có voice) |
+| Telegram Bot | Notifications | Không |
 
-Theo dõi:
-```bash
-docker compose logs -f python_worker
-curl http://localhost:8000/api/v1/status/<episode_id>
-```
-
-Output:
-- `assets_temp/final_output/master_video_<id>.mp4`
-- `assets_temp/final_output/subtitles_<id>.srt`
-- `assets_temp/final_output/thumbnails_<id>/variant_*.jpg`
-- Telegram: `✅ RENDER COMPLETE`
+Key thêm qua UI `/api-sources`, không lưu trong `.env`.
 
 ---
 
-## 6. Cấu hình niche
+## 6. Chi phí ước tính
 
-Đổi 4 dòng trong `.env` để chuyển sản xuất sang niche khác:
+Với `VIDEO_PROVIDER=slideshow` (không cần Veo3):
 
-```env
-CHANNEL_NAME=My Channel
-CHANNEL_NICHE=cooking                  # bất kỳ niche nào
-CHANNEL_URL=https://www.youtube.com/@reference_channel
-TARGET_DURATION_MINUTES=20
-```
+| Quality | Scenes | Script (Gemini) | Image (Gemini) | Video (ffmpeg) | Total |
+|---|---|---|---|---|---|
+| Draft | 3 | ~$0.01 | ~$0.09 | $0 | **~$0.10** |
+| Standard | 5 | ~$0.02 | ~$0.15 | $0 | **~$0.17** |
+| Premium | 8 | ~$0.03 | ~$0.24 | $0 | **~$0.27** |
+
+Với `VIDEO_PROVIDER=veo3` (thêm ~$0.59/scene):
+
+| Quality | Scenes | Tổng |
+|---|---|---|
+| Draft | 3 | **~$1.80** |
+| Standard | 5 | **~$3.00** |
+| Premium | 8 | **~$4.80** |
+
+> Budget limit mặc định `BUDGET_LIMIT_PER_VIDEO=$5.00` — BE block nếu vượt. Override bằng env.
 
 ---
 
@@ -161,106 +151,48 @@ TARGET_DURATION_MINUTES=20
 
 ```text
 .
-├── Readme.md                                    # ← Bạn đang đọc
-└── video-content-engine/
-    ├── (moved to docs/06-deployment.md)
-    ├── README.md                                # README inner (kỹ thuật)
-    ├── docker-compose.yml
-    ├── init.sql                                 # PostgreSQL schema
-    ├── .env.example
-    ├── n8n_workflows/                           # 3 workflow JSON
-    │   ├── 01_idea_and_script.json              # Pipeline chính
-    │   ├── 02_scene_generation.json             # Manual entry với script sẵn
-    │   ├── 03_render_and_upload.json            # Webhook callback từ worker
-    │   └── reference_full_pipeline.json         # Legacy — bỏ qua
-    ├── prompts_library/                         # Templates (optional)
-    └── worker/                                  # FastAPI Python service
-        ├── main_server.py                       # API /api/v1/render + pipeline orchestration
-        ├── video_assembler.py                   # MoviePy ghép + ffmpeg burn-in subs
-        ├── asset_downloader.py                  # ElevenLabs voiceover + Veo3/Runway video
-        ├── elevenlabs_music.py                  # BGM official (default provider)
-        ├── suno_client.py                       # BGM via Suno (legacy/optional, unofficial)
-        ├── thumbnail_gen.py                     # Pillow text overlay (3 variants)
-        ├── tiktok_cutter.py                     # 9:16 crop + hardsub cho Shorts
-        ├── veo3_generator.py                    # Google Veo 3.1 video gen
-        ├── distributor.py                       # YouTube upload + Telegram
-        ├── clean_temp.py                        # Cleanup sau upload
-        └── Dockerfile
+├── Readme.md
+├── CHECKLIST.md                        # Task tracking v5.2
+├── backend/src/
+│   ├── common/provider-registry.ts     # Provider → {url, auth, format} map
+│   ├── modules/source/source.service.ts # createManual: resolve providers + push n8n
+│   ├── gateways/jobs.gateway.ts        # Socket.IO: scene-progress, job events
+│   └── webhooks/worker.controller.ts   # Webhook từ python_worker
+├── frontend/src/components/video/
+│   └── PipelineProgress.tsx            # Per-scene grid + ETA + clip modal
+├── video-content-engine/
+│   ├── n8n_workflows/
+│   │   ├── 02_scene_generation.json    # Scene planner + validator + image gen
+│   │   └── 03_render_and_upload.json   # Render callback
+│   └── worker/
+│       ├── main_server.py              # Orchestration + scene-progress webhook
+│       ├── asset_downloader.py         # Image/video download + Veo3 + Ken Burns
+│       ├── veo3_generator.py           # Vertex AI Veo 3.1 SDK wrapper
+│       └── Dockerfile
+└── secrets/
+    └── gcp-sa.json                     # GCP Service Account key (gitignored)
 ```
 
 ---
 
-## 8. Chi phí ước tính
+## 8. Trạng thái tính năng
 
-Video 15 phút (~110 scenes × 8s):
-
-| Service | Cost |
-|---|---|
-| GPT-5.4-mini (topic + script + QA + scenes + SEO) | ~$1 |
-| Claude Opus 4.7 (script refine) | ~$0.5 |
-| `gpt-image-2` (~110 scene images + 1 thumbnail) | ~$2-5 |
-| ElevenLabs voiceover (~2500 từ) | ~$1 |
-| Veo 3.1 hoặc Runway Gen-4 Turbo (~110 × 8s) | ~$5-50 |
-| ElevenLabs Music (BGM ~120s instrumental) | ~$0.3 |
-| **Total / video** | **~$10-60** |
-
-> Veo3 rẻ hơn Runway ~10×. Set `VIDEO_PROVIDER=veo3` để tiết kiệm.
-> ElevenLabs Music yêu cầu paid plan ($22/tháng Creator) — set `MUSIC_PROVIDER=static` nếu chỉ test.
-
----
-
-## 9. Lộ trình triển khai
-
-| Tuần | Mục tiêu |
-|---|---|
-| **1** | Setup Docker, lấy API keys, OAuth YouTube, chạy thành công 1 video draft đầu tiên |
-| **2** | Test phân tích các kênh tham chiếu khác nhau, tinh chỉnh QA score, tối ưu prompt template |
-| **3** | Bật scheduled trigger, monitor cost, xử lý các edge case (Veo3 timeout, ElevenLabs quota) |
-| **4** | A/B test thumbnail, tối ưu retention dựa trên YouTube Analytics, kích hoạt TikTok burn-in |
-
----
-
-## 10. Error handling
-
-- **API timeout / 5xx:** Auto-retry 3 lần (worker `urllib3.Retry`)
-- **Rate limit 429:** Retry với `Retry-After` header
-- **Budget exceeded:** Worker abort + Telegram alert
-- **QA score < threshold:** Workflow throw error, không vào phase render
-- **Worker crash:** PostgreSQL giữ scene state, chạy lại workflow sẽ resume scenes failed
-- **YouTube refresh token expired:** Worker log lỗi, video vẫn được render local
-
----
-
-## 11. API keys cần đăng ký (4 service tối thiểu)
-
-| Key env | Service | Dùng để |
+| Tính năng | Trạng thái | Ghi chú |
 |---|---|---|
-| `OPENAI_API_KEY` | OpenAI | Topic + script + image (DALL-E) + scene breakdown + SEO + QA |
-| `ANTHROPIC_API_KEY` | Anthropic | Claude refine script |
-| `ELEVENLABS_API_KEY` + `ELEVENLABS_VOICE_ID` | ElevenLabs | Voice + Music (1 key dùng cả 2!) |
-| `GOOGLE_API_KEY` + `YOUTUBE_DATA_API_KEY` | Google AI Studio | Veo3 video + YouTube channel analysis (có thể dùng cùng 1 key) |
-
-Optional:
-- `YOUTUBE_CLIENT_ID/SECRET/REFRESH_TOKEN` — auto-upload draft lên YouTube
-- `TELEGRAM_BOT_TOKEN/CHAT_ID` — push notification
-- `VIDEO_API_KEY` — chỉ cần nếu set `VIDEO_PROVIDER=runway`
-
-**Hướng dẫn lấy từng key: xem [`docs/06-deployment.md`](./docs/06-deployment.md#3-lấy-api-keys) section 3.**
-
----
-
-## 12. Giới hạn đã biết
-
-Xem [`docs/06-deployment.md`](./docs/06-deployment.md#10-giới-hạn-đã-biết-sẽ-cải-tiến) section 10:
-- Thumbnail từ DALL-E đã download local (3 variants) nhưng chưa auto-upload lên YouTube qua `youtube.thumbnails().set()` API
-- TikTok highlights chưa auto-extract từ script (workflow không tạo `highlights[]` trong manifest)
-- Character consistency giữa scenes (DALL-E mỗi scene độc lập, không có character DNA)
-- Chưa có frame chaining giữa scene N và N+1
-- ElevenLabs Music yêu cầu paid plan; nếu không có → fallback static BGM
-- **Không có UI cho end-user** — chỉ trigger qua n8n UI hoặc curl webhook
+| Provider-agnostic routing | ✅ Done | Gemini script + image hoạt động |
+| Character library + DNA | ✅ Done | Image gen cần Google IMAGE quota |
+| Quality mode + cost guard | ✅ Done | Draft/Standard/Premium |
+| Voice script + scene planner | ✅ Done | 10 rules, narration verbatim |
+| Manifest validator + repair | ✅ Done | AI repair 1x |
+| Veo3 video gen | ✅ Code done | Cần PRE-2/3/4 (GCP billing + SA key) |
+| Ken Burns fallback | ✅ Done | Veo3 fail → slideshow tự động |
+| Per-scene progress grid | ✅ Done | Realtime via Socket.IO |
+| ETA + clip preview modal | ✅ Done | |
+| Character image gen | ⏳ Pending quota | Google IMAGE quota 429 |
+| E2E smoke test | ⏳ Pending quota | Blocked cùng blocker image |
 
 ---
 
-## 13. License
+## 9. License
 
 Internal project.

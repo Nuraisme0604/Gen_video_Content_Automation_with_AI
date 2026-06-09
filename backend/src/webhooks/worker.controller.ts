@@ -28,28 +28,40 @@ export class WorkerWebhookController {
     videoId: string;
     bullJobId?: string;
     sceneIndex: number;
-    progress: number;
+    status?: string;    // L.1 format: queued|rendering|done|failed
+    progress?: number;  // legacy format: 0-100
     stage?: string;
     previewUrl?: string;
   }) {
+    // Resolve status: prefer explicit status field (L.1), fallback to progress-based (legacy)
+    const effectiveStatus = body.status ?? (body.progress !== undefined && body.progress >= 100 ? 'done' : 'rendering');
+
     await this.prisma.scene.updateMany({
       where: { videoId: body.videoId, sceneIndex: body.sceneIndex },
-      data: { status: body.progress >= 100 ? 'done' : 'rendering' },
+      data: { status: effectiveStatus },
+    });
+
+    // Forward scene-progress event to FE subscribers per video_id (L.2)
+    this.gateway.emitSceneProgress(body.videoId, {
+      sceneIndex: body.sceneIndex,
+      status: effectiveStatus,
     });
 
     if (body.bullJobId) {
       await this.jobService.updateStatus(body.bullJobId, {
         status: 'active',
-        progress: body.progress,
+        progress: body.progress ?? 0,
         stage: body.stage,
       });
     }
 
-    this.gateway.emitJobProgress(body.videoId, {
-      jobId: body.bullJobId || '',
-      progress: body.progress,
-      stage: body.stage,
-    });
+    if (body.progress !== undefined) {
+      this.gateway.emitJobProgress(body.videoId, {
+        jobId: body.bullJobId || '',
+        progress: body.progress,
+        stage: body.stage,
+      });
+    }
 
     if (body.previewUrl) {
       this.gateway.emitSceneRendered(body.videoId, {

@@ -45,6 +45,8 @@ export const createManualSource = (
 ) => api.post('/sources/manual', data).then(r => r.data);
 export const getSources = (projectId: string) =>
   api.get(`/sources/project/${projectId}`).then(r => r.data);
+export const estimateCost = (projectId: string, sceneCount: number, qualityMode?: string) =>
+  api.get('/sources/estimate-cost', { params: { projectId, sceneCount, qualityMode } }).then(r => r.data);
 
 // ---- Jobs ----
 export type JobsPage = { items: any[]; total: number; limit: number; offset: number };

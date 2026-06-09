@@ -35,8 +35,8 @@
 ### Pipeline AI quality
 - [x] Script: Gemini 2.5 Flash free hoạt động ([02_scene_generation.json](../video-content-engine/n8n_workflows/02_scene_generation.json))
 - [x] Voice: Edge TTS free hoạt động (`edge-tts 7.2.8` installed in worker)
-- [~] Image: **picsum placeholder hiện tại** (n8n workflow hard-code); Pexels free / Imagen Ultra paid cần wire-up
-- [~] Video: local slideshow OK (`VIDEO_PROVIDER=slideshow` env); Veo3 cần paid Vertex AI ([setup-vertex-ai.md](setup-vertex-ai.md))
+- [x] Image: **Gemini Flash Image** (`google/gemini-2.5-flash-image`) wired qua n8n `HTTP - Generate Scene Image` (GĐ G v5.2) — provider-agnostic, character DNA multimodal inject, query-auth. _Pending quota để verify ảnh thật._
+- [x] Video: local slideshow OK; **Veo3 code wired** (GĐ H v5.2 — `veo3_generator.py` + Vertex AI SDK, image-to-video mode, semaphore 3 concurrent); **Ken Burns fallback** tự động khi Veo3 fail (GĐ I v5.2). `VIDEO_PROVIDER=veo3` ready — cần `secrets/gcp-sa.json`.
 - [x] `masterVideoKey` được lưu DB qua webhook ([worker.controller.ts](../backend/src/webhooks/worker.controller.ts)) — verified 4/4 done videos
 - [x] MinIO upload master video tự động sau ffmpeg — verified 8 master.mp4 trong bucket `assets/videos/`
 - [x] Stale source auto-fail >15 phút ([source.service.ts](../backend/src/modules/source/source.service.ts) `markStaleAsFailed`)
@@ -85,6 +85,12 @@
 - [x] Active source persistence (resume PipelineProgress)
 - [x] AI + Voice + Character ref panel inline
 - [x] Realtime PipelineProgress Socket.IO
+- [x] **Provider-agnostic routing** (GĐ A v5.2) — BE resolve key+URL per provider, push `providers:{script,image,video}` xuống n8n; không hardcode
+- [x] **Character library + DNA** (GĐ B v5.2) — character dropdown trong form, character_bible inject vào prompt + Gemini multimodal ref
+- [x] **Voice script input** (GĐ C-D v5.2) — textarea optional; nếu trống → LLM sinh từ title+style
+- [x] **Quality mode** (GĐ C v5.2) — Draft/Standard/Premium cap sceneCount + auto-clamp
+- [x] **Cost estimate trước submit** (GĐ K v5.2) — live `💰 ~$X.XX` badge + ⚠️ badge khi > $3 + confirm dialog + BE pre-flight block
+- [x] **Per-scene progress grid** (GĐ L v5.2) — N ô realtime queued/rendering/done/failed via Socket.IO, ETA live, click ô done → modal clip preview
 
 ### Todo
 - [ ] 🟠 **Article URL fetch** (M)
@@ -96,11 +102,6 @@
   - File: `create/page.tsx` tab Truyện
   - Lib: `mammoth.js` (docx), `pdfjs-dist` (pdf)
   - Verify: upload `.docx` 5 trang → script textarea có text
-
-- [ ] 🟡 **Cost estimate trước submit** (M)
-  - File: thêm `<CostEstimate>` trong `create/page.tsx`
-  - Tính: provider × scene count × estimated tokens/seconds
-  - Verify: chọn Veo3 + 8 scenes 8s → hiện "~$0.80 / ~3 phút"
 
 - [ ] 🟡 **Save preset cấu hình video** (M)
   - Schema: `CreateVideoPreset { projectId, name, sceneCount, durationSec, aspectRatio, voice, ai }`
@@ -415,17 +416,18 @@
 
 | Priority | ✅ Done | 🔨 Todo |
 |---|---|---|
-| 🔴 P0 Blocking | **9** | **0** ✅ |
-| 🟠 P1 Important | 4 | 8 |
-| 🟡 P2 Nice-to-have | 1 | 23 |
+| 🔴 P0 Blocking | **11** | **0** ✅ |
+| 🟠 P1 Important | 10 | 7 |
+| 🟡 P2 Nice-to-have | 2 | 22 |
 | 🟢 P3 Polish | 1 | 10 |
-| **Total** | **~87** | **~41** |
+| **Total** | **~99** | **~39** |
 
 → **Đề xuất order:**
 1. ~~P0~~ — **CLOSED 2026-05-21** ✅ (Decision = Free + polish; BGM offset fix làm verify pass)
 2. ~~Quick wins (5 items S)~~ — **xong hết 2026-05-21** ✅
-3. P1 todo (article-fetch, subtitle editor, video-trimmer, persist notification settings, ...)
-4. P2/P3 theo nhu cầu
+3. ~~v5.2 features (A-L)~~ — **CLOSED 2026-06-10** ✅ (provider-agnostic, character DNA, quality mode, cost guard, per-scene grid; pending: image quota B.6/G.4, Veo3 H.6/L.6)
+4. P1 todo (article-fetch, subtitle editor, video-trimmer, persist notification settings, ...)
+5. P2/P3 theo nhu cầu
 
 ## Liên quan
 

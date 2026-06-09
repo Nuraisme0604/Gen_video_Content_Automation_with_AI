@@ -166,6 +166,7 @@ services:
       - "8000:8000"
     volumes:
       - ./video-content-engine/assets_temp:/assets_temp
+      - ./secrets:/secrets:ro
     environment:
       - DATABASE_URL=postgresql://${POSTGRES_USER:-user}:${POSTGRES_PASSWORD:-pass}@postgres:5432/${POSTGRES_DB:-content_engine}
       - REDIS_URL=redis://redis:6379
@@ -186,6 +187,7 @@ services:
       - SCENE_VIDEO_SECONDS=${SCENE_VIDEO_SECONDS:-8}
       - VEO3_POLL_TIMEOUT=${VEO3_POLL_TIMEOUT:-300}
       - USE_IMAGE_TO_VIDEO=${USE_IMAGE_TO_VIDEO:-true}
+      - GOOGLE_APPLICATION_CREDENTIALS=${GOOGLE_APPLICATION_CREDENTIALS:-/secrets/gcp-sa.json}
       # Voice (Edge TTS — free, no key)
       - VOICE_NAME=${VOICE_NAME:-vi-VN-NamMinhNeural}
       # BGM (free fallback to static if no ElevenLabs/Suno key in DB)

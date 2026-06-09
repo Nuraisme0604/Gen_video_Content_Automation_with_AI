@@ -1,5 +1,5 @@
 {
-  "name": "02 - Scene Generation (Script → Worker)",
+  "name": "02 - Scene Generation (Script \u2192 Worker)",
   "nodes": [
     {
       "parameters": {
@@ -21,7 +21,7 @@
     {
       "parameters": {
         "mode": "runOnceForAllItems",
-        "jsCode": "const body = $input.first().json.body || $input.first().json;\nif (!body.narration_script) throw new Error('narration_script is required');\nif (!body.title) throw new Error('title is required');\nconst QUALITY_CAPS = { draft: 3, standard: 5, premium: 8 };\nconst qualityMode = ['draft','standard','premium'].includes(body.quality_mode) ? body.quality_mode : null;\nconst sceneMax = qualityMode ? QUALITY_CAPS[qualityMode] : 20;\nconst sceneCount = body.scene_count ? Math.max(3, Math.min(sceneMax, parseInt(body.scene_count))) : null;\nconst targetDuration = body.target_duration_sec ? Math.max(15, parseInt(body.target_duration_sec)) : null;\nconst aspectRatio = ['16:9','9:16','1:1'].includes(body.aspect_ratio) ? body.aspect_ratio : '16:9';\nconst sceneSeconds = (sceneCount && targetDuration)\n  ? Math.max(2, Math.round(targetDuration / sceneCount))\n  : (body.scene_seconds || parseInt($env.SCENE_VIDEO_SECONDS || '8'));\nconst niche = body.channel_niche || $env.CHANNEL_NICHE || 'general';\nconst language = body.language || $env.CHANNEL_LANGUAGE || 'English';\nconst visualStyle = body.visual_style || $env.CHANNEL_VISUAL_STYLE || 'cinematic';\nconst projectDesc = body.project_description || '';\nconst userBase = (body.script_base_prompt || '').trim();\nconst defaultBase = `You are a senior video director and screenwriter for a ${niche} channel targeting ${language}-speaking viewers. Your job: break a narration script into vivid, cinematic scenes that flow with strong visual continuity and emotional pacing.\n\nRules:\n- Output STRICT JSON only — no markdown, no commentary.\n- Each scene must have visual coherence with adjacent scenes (same setting, lighting mood, characters).\n- image_prompt: photographic, specific (subject + setting + lighting + composition), aspect ratio ${aspectRatio}. No text overlays.\n- video_prompt: short imperative motion description (e.g., \"slow dolly-in\", \"hand-held tracking shot\"). Must match the image.\n- camera_motion: one of [static, pan_left, pan_right, dolly_in, dolly_out, tilt_up, tilt_down, tracking].\n- sound_design: ambient cue keyword (e.g., \"rain, distant thunder\", \"market chatter\").\n- narration_excerpt: literal sentence(s) from the input script — do NOT paraphrase.\n- The scenes array length MUST equal the requested scene count.\n- Visual style: ${visualStyle}.${projectDesc ? `\\n- Channel context: ${projectDesc}` : ''}`;\nconst systemPrompt = userBase || defaultBase;\n\n// ── Providers: pushed by backend source.service for dynamic routing ──\nconst providers = body.providers || null;\nif (!providers || !providers.script) throw new Error('providers.script is null — set project Script provider (google/anthropic) and add an active SCRIPT key in API Sources');\nif (!providers.image) throw new Error('providers.image is null — set project Image provider = google, model = gemini-2.5-flash-image-preview and add an active IMAGE key in API Sources');\n\n// Build user message (moved here so script_request can inline it)\nconst sceneCountLabel = sceneCount || 'an appropriate number of';\nconst durationLabel = targetDuration || (sceneSeconds * 8);\nconst userMessage = `Break this script into EXACTLY ${sceneCountLabel} scenes. Total target duration: ${durationLabel}s (~${sceneSeconds}s each). Aspect ratio: ${aspectRatio}.\\n\\nReturn JSON shape:\\n{\\n  \"style_bible\": \"global visual rules (palette, lens, lighting, character DNA) used across all scenes\",\\n  \"scenes\": [{ \"scene_id\": 1, \"start_sec\": 0, \"end_sec\": 8, \"narration_excerpt\": \"...\", \"image_prompt\": \"...\", \"video_prompt\": \"...\", \"camera_motion\": \"dolly_in\", \"sound_design\": \"...\" }]\\n}\\n\\nTitle: ${body.title}\\n\\nScript:\\n${body.narration_script}`;\n\n// Build script_request based on provider format (claude_messages vs openai_chat)\nlet script_request;\nconst fmt = providers.script.requestFormat;\nif (fmt === 'claude_messages') {\n  script_request = {\n    url: providers.script.url,\n    headers: {\n      'x-api-key': providers.script.authValue,\n      'anthropic-version': ((providers.script.extraHeaders || {})['anthropic-version'] || '2023-06-01'),\n      'content-type': 'application/json',\n    },\n    body: { model: providers.script.model, max_tokens: 4096, system: systemPrompt, messages: [{ role: 'user', content: userMessage }] },\n  };\n} else {\n  // openai_chat — Gemini OpenAI-compat endpoint\n  script_request = {\n    url: providers.script.url,\n    headers: { [providers.script.authName]: providers.script.authValue, 'content-type': 'application/json' },\n    body: { model: providers.script.model, messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: userMessage }] },\n  };\n}\n\nconst config = {\n  projectId:           body.projectId || '',\n  episode_id:          body.episode_id || `ep_${new Date().getTime()}`,\n  title:               body.title,\n  narration_script:    body.narration_script,\n  thumbnail_text:      body.thumbnail_text || body.title,\n  seo_keywords:        body.seo_keywords || [],\n  core_emotion:        body.core_emotion || null,\n  channel_niche:       niche,\n  language:            language,\n  visual_style:        visualStyle,\n  project_description: projectDesc,\n  system_prompt:       systemPrompt,\n  user_base_override:  !!userBase,\n  scene_seconds:       sceneSeconds,\n  scene_count:         sceneCount,\n  target_duration_sec: targetDuration,\n  aspect_ratio:        aspectRatio,\n  workspace:           '/data/pipeline',\n  providers,\n  script_request,\n  quality_mode:        qualityMode,\n  voice_script:        body.voice_script || null,\n  character_id:        body.character_id || null,\n};\nreturn [{ json: config }];"
+        "jsCode": "const body = $input.first().json.body || $input.first().json;\nif (!body.narration_script) throw new Error('narration_script is required');\nif (!body.title) throw new Error('title is required');\nconst QUALITY_CAPS = { draft: 3, standard: 5, premium: 8 };\nconst qualityMode = ['draft','standard','premium'].includes(body.quality_mode) ? body.quality_mode : null;\nconst sceneMax = qualityMode ? QUALITY_CAPS[qualityMode] : 20;\nconst sceneCount = body.scene_count ? Math.max(3, Math.min(sceneMax, parseInt(body.scene_count))) : null;\nconst targetDuration = body.target_duration_sec ? Math.max(15, parseInt(body.target_duration_sec)) : null;\nconst aspectRatio = ['16:9','9:16','1:1'].includes(body.aspect_ratio) ? body.aspect_ratio : '16:9';\nconst sceneSeconds = (sceneCount && targetDuration)\n  ? Math.max(2, Math.round(targetDuration / sceneCount))\n  : (body.scene_seconds || parseInt($env.SCENE_VIDEO_SECONDS || '8'));\nconst niche = body.channel_niche || $env.CHANNEL_NICHE || 'general';\nconst language = body.language || $env.CHANNEL_LANGUAGE || 'English';\nconst visualStyle = body.visual_style || $env.CHANNEL_VISUAL_STYLE || 'cinematic';\nconst projectDesc = body.project_description || '';\nconst userBase = (body.script_base_prompt || '').trim();\n\n// Build character_bible and style context for prompt injection\nconst characterData = body.character || null;\nconst characterBible = characterData\n  ? `\n\nCHARACTER REFERENCE (maintain visual consistency for this character across all scenes):\nName: ${characterData.name}\nVisual DNA: ${characterData.description}`\n  : '';\n\nconst defaultBase = `You are a senior video director and screenwriter for a ${niche} channel targeting ${language}-speaking viewers.\n\nYour task: divide a voice-over script into EXACTLY the requested number of scenes with vivid, cinematic visual prompts.\n\nSTRICT RULES \u2014 every rule must be followed:\n1. SCENE COUNT: The \"scenes\" array MUST contain EXACTLY the requested count. Not one more, not one fewer.\n2. NARRATION VERBATIM: Each scene's \"narration_excerpt\" must be copied WORD-FOR-WORD from the input voice-over script \u2014 no paraphrasing, no summarizing, no rewording.\n3. SENTENCE BOUNDARIES: Cut ONLY at sentence-ending punctuation (. ! ?). Never split mid-sentence.\n4. FULL COVERAGE: Concatenating all \"narration_excerpt\" values in order must reproduce the entire voice-over script with no gaps and no overlaps.\n5. WORD BALANCE: Distribute word count as evenly as possible. Each scene should hold ~1/N of total words (tolerance \u00b120%).\n6. image_prompt: photographic description \u2014 subject + setting + lighting + composition, aspect ratio ${aspectRatio}. No text overlays, no UI elements.\n7. video_prompt: short imperative motion description (e.g., \"slow dolly-in\", \"hand-held tracking shot\").\n8. camera_motion: one of [static, pan_left, pan_right, dolly_in, dolly_out, tilt_up, tilt_down, tracking].\n9. sound_design: ambient cue (e.g., \"rain, distant thunder\", \"market chatter, sizzling food\").\n10. Output STRICT JSON only \u2014 no markdown fences, no commentary, no extra keys.\n\nSTYLE CONTEXT (apply consistently across all scenes):\nVisual style: ${visualStyle}${projectDesc ? `\nChannel context: ${projectDesc}` : ''}${characterBible}`;\nconst systemPrompt = userBase || defaultBase;\n\n// \u2500\u2500 Providers: pushed by backend source.service for dynamic routing \u2500\u2500\nconst providers = body.providers || null;\nif (!providers || !providers.script) throw new Error('providers.script is null \u2014 set project Script provider (google/anthropic) and add an active SCRIPT key in API Sources');\nif (!providers.image) throw new Error('providers.image is null \u2014 set project Image provider = google, model = gemini-2.5-flash-image-preview and add an active IMAGE key in API Sources');\n\n// Build user message (moved here so script_request can inline it)\nconst scriptToSplit = (body.voice_script || '').trim() || body.narration_script;\nconst sceneCountLabel = sceneCount || 'an appropriate number of';\nconst durationLabel = targetDuration || (sceneSeconds * (sceneCount || 8));\nconst userMessage = `Divide the voice-over script below into EXACTLY ${sceneCountLabel} scenes. Target duration: ${durationLabel}s (~${sceneSeconds}s per scene). Aspect ratio: ${aspectRatio}.\n\nVoice-over script (divide this verbatim into scenes):\n\"\"\"\n${scriptToSplit}\n\"\"\"\n\nTitle: ${body.title}\n\nJSON output format:\n{\n  \"style_bible\": \"global visual rules: palette, lens style, lighting, mood used across ALL scenes\",\n  \"character_bible\": \"consistent physical appearance and visual traits of the character across all scenes (empty string if no character)\",\n  \"scenes\": [\n    {\n      \"scene_id\": 1,\n      \"start_sec\": 0,\n      \"end_sec\": ${sceneSeconds},\n      \"narration_text\": \"<verbatim copy-paste from the script above>\",\n      \"image_prompt\": \"...\",\n      \"video_prompt\": \"...\",\n      \"camera_motion\": \"dolly_in\",\n      \"sound_design\": \"...\",\n      \"has_character\": true\n    }\n  ]\n}\n\nIMPORTANT: Before outputting, verify scenes.length === ${sceneCountLabel}. Verify narration_text values are verbatim from the script.`;\n\n// Build script_request based on provider format (claude_messages vs openai_chat)\nlet script_request;\nconst fmt = providers.script.requestFormat;\nif (fmt === 'claude_messages') {\n  script_request = {\n    url: providers.script.url,\n    headers: {\n      'x-api-key': providers.script.authValue,\n      'anthropic-version': ((providers.script.extraHeaders || {})['anthropic-version'] || '2023-06-01'),\n      'content-type': 'application/json',\n    },\n    body: { model: providers.script.model, max_tokens: 4096, system: systemPrompt, messages: [{ role: 'user', content: userMessage }] },\n  };\n} else {\n  // openai_chat \u2014 Gemini OpenAI-compat endpoint\n  script_request = {\n    url: providers.script.url,\n    headers: { [providers.script.authName]: providers.script.authValue, 'content-type': 'application/json' },\n    body: { model: providers.script.model, messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: userMessage }] },\n  };\n}\n\nconst config = {\n  projectId:           body.projectId || '',\n  episode_id:          body.episode_id || `ep_${new Date().getTime()}`,\n  title:               body.title,\n  narration_script:    body.narration_script,\n  thumbnail_text:      body.thumbnail_text || body.title,\n  seo_keywords:        body.seo_keywords || [],\n  core_emotion:        body.core_emotion || null,\n  channel_niche:       niche,\n  language:            language,\n  visual_style:        visualStyle,\n  project_description: projectDesc,\n  system_prompt:       systemPrompt,\n  user_base_override:  !!userBase,\n  scene_seconds:       sceneSeconds,\n  scene_count:         sceneCount,\n  target_duration_sec: targetDuration,\n  aspect_ratio:        aspectRatio,\n  workspace:           '/data/pipeline',\n  providers,\n  script_request,\n  quality_mode:        qualityMode,\n  voice_script:        body.voice_script || null,\n  character_id:        body.character_id || null,\n  character:           characterData,\n  character_bible:     characterData ? `Name: ${characterData.name}. Visual DNA: ${characterData.description}` : null,\n};\nreturn [{ json: config }];"
       },
       "id": "b2000002-0000-0000-0000-000000000002",
       "name": "Code - Validate Input",
@@ -35,13 +35,13 @@
     {
       "parameters": {
         "method": "POST",
-        "url": "={{ $('Code - Validate Input').first().json.script_request.url }}",
+        "url": "={{ $input.first().json.script_request.url }}",
         "sendHeaders": true,
         "specifyHeaders": "json",
-        "jsonHeaders": "={{ JSON.stringify($('Code - Validate Input').first().json.script_request.headers) }}",
+        "jsonHeaders": "={{ JSON.stringify($input.first().json.script_request.headers) }}",
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify($('Code - Validate Input').first().json.script_request.body) }}",
+        "jsonBody": "={{ JSON.stringify($input.first().json.script_request.body) }}",
         "options": {
           "response": {
             "response": {
@@ -56,7 +56,7 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
-        600,
+        1200,
         200
       ],
       "retryOnFail": true,
@@ -73,21 +73,21 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        840,
+        1440,
         200
       ]
     },
     {
       "parameters": {
         "mode": "runOnceForAllItems",
-        "jsCode": "const base = $input.first().json;\nconst scenes = base.scene_plan.scenes || [];\nreturn scenes.map(scene => ({\n  json: {\n    episode_id: base.episode_id,\n    title: base.title,\n    narration_script: base.narration_script,\n    thumbnail_text: base.thumbnail_text,\n    seo_keywords: base.seo_keywords,\n    core_emotion: base.core_emotion || null,\n    style_bible: base.scene_plan.style_bible || '',\n    scene\n  }\n}));"
+        "jsCode": "const base = $input.first().json;\nconst scenes = base.scene_plan.scenes || [];\nreturn scenes.map(scene => ({\n  json: {\n    episode_id: base.episode_id,\n    title: base.title,\n    narration_script: base.narration_script,\n    thumbnail_text: base.thumbnail_text,\n    seo_keywords: base.seo_keywords,\n    core_emotion: base.core_emotion || null,\n    style_bible: base.scene_plan.style_bible || '',\n    character_bible: base.scene_plan.character_bible || base.character_bible || '',\n    scene\n  }\n}));"
       },
       "id": "b2000005-0000-0000-0000-000000000005",
       "name": "Code - Split Scenes",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        960,
+        2820,
         200
       ]
     },
@@ -97,25 +97,17 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
-        1680,
+        3540,
         200
       ],
       "parameters": {
         "method": "POST",
-        "url": "={{ $('Code - Validate Input').first().json.providers.image.url + '?' + $('Code - Validate Input').first().json.providers.image.authName + '=' + $('Code - Validate Input').first().json.providers.image.authValue }}",
+        "url": "={{ (function() {\n  const img = $('Code - Validate Input').first().json.providers.image;\n  return img.authMode === 'query'\n    ? img.url + '?' + img.authName + '=' + img.authValue\n    : img.url;\n})() }}",
         "sendHeaders": true,
-        "specifyHeaders": "keypair",
-        "headerParameters": {
-          "parameters": [
-            {
-              "name": "Content-Type",
-              "value": "application/json"
-            }
-          ]
-        },
+        "specifyHeaders": "json",
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ contents: [{ parts: [{ text: `Generate a cinematic ${$json.scene.aspect_ratio || '16:9'} image. Style: ${$json.style_bible}. Scene ${$json.scene.scene_id}: ${$json.scene.image_prompt}. No text, no watermark, no logo.` }] }], generationConfig: { responseModalities: ['TEXT', 'IMAGE'] } }) }}",
+        "jsonBody": "={{ (function() {\n  const hasCharacter = $json.scene.has_character === true;\n  const charBible = hasCharacter ? ($json.character_bible || '') : '';\n  const character = hasCharacter ? ($('Code - Validate Input').first().json.character || null) : null;\n  const charImgUrl = character ? (character.imageUrl || null) : null;\n\n  const charRef = charBible ? '\\nCharacter reference (maintain visual consistency): ' + charBible : '';\n  const textPart = {\n    text: 'Generate a cinematic ' + ($json.scene.aspect_ratio || '16:9') + ' image.' +\n          '\\nStyle: ' + $json.style_bible + charRef +\n          '\\nScene ' + $json.scene.scene_id + ': ' + $json.scene.image_prompt +\n          '\\nNo text overlays, no watermarks, no logos.'\n  };\n\n  const parts = [textPart];\n  if (charImgUrl) {\n    parts.push({ fileData: { mimeType: 'image/jpeg', fileUri: charImgUrl } });\n  }\n\n  return JSON.stringify({\n    contents: [{ parts }],\n    generationConfig: { responseModalities: ['TEXT', 'IMAGE'] }\n  });\n})() }}",
         "options": {
           "timeout": 60000,
           "response": {
@@ -123,7 +115,8 @@
               "responseFormat": "json"
             }
           }
-        }
+        },
+        "jsonHeaders": "={{ (function() {\n  const img = $('Code - Validate Input').first().json.providers.image;\n  const h = { 'Content-Type': 'application/json', ...(img.extraHeaders || {}) };\n  if (img.authMode === 'header') h[img.authName] = img.authValue;\n  return JSON.stringify(h);\n})() }}"
       }
     },
     {
@@ -132,7 +125,7 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        1920,
+        3780,
         200
       ],
       "parameters": {
@@ -142,31 +135,23 @@
     {
       "parameters": {
         "mode": "runOnceForAllItems",
-        "jsCode": "const items = $input.all().map(i => i.json);\nconst base = items[0];\nconst cfg = $('Code - Validate Input').first().json;\nconst projectId = cfg.projectId || '';\nconst aspect = cfg.aspect_ratio || '16:9';\nreturn [{ json: {\n  projectId,\n  episode_id: base.episode_id,\n  workspace: '/data/pipeline',\n  title: base.title,\n  narration_script: base.narration_script,\n  thumbnail_text: base.thumbnail_text,\n  seo_keywords: base.seo_keywords || [],\n  core_emotion: base.core_emotion || null,\n  aspect_ratio: aspect,\n  target_duration_sec: cfg.target_duration_sec || null,\n  scene_count: cfg.scene_count || null,\n  scenes: items.map((item, idx) => {\n    const scene = item.scene || {};\n    const sceneId = scene.scene_id || ('scene_' + (idx + 1));\n    return {\n      scene_id: String(sceneId),\n      start_sec: scene.start_sec || 0,\n      end_sec: scene.end_sec || cfg.scene_seconds || 8,\n      narration_excerpt: scene.narration_excerpt || '',\n      image_url: item.image_url,\n      video_prompt: scene.video_prompt || scene.image_prompt || '',\n      sound_design: scene.sound_design || 'ambient',\n      aspect_ratio: aspect\n    };\n  })\n} }];"
+        "jsCode": "const items = $input.all().map(i => i.json);\nconst base = items[0];\nconst cfg = $('Code - Validate Input').first().json;\nconst projectId = cfg.projectId || '';\nconst aspect = cfg.aspect_ratio || '16:9';\nreturn [{ json: {\n  projectId,\n  episode_id: base.episode_id,\n  workspace: '/data/pipeline',\n  title: base.title,\n  narration_script: base.narration_script,\n  thumbnail_text: base.thumbnail_text,\n  seo_keywords: base.seo_keywords || [],\n  core_emotion: base.core_emotion || null,\n  aspect_ratio: aspect,\n  target_duration_sec: cfg.target_duration_sec || null,\n  scene_count: cfg.scene_count || null,\n  style_bible: base.style_bible || '',\n  character_bible: base.character_bible || cfg.character_bible || '',\n  scenes: items.map((item, idx) => {\n    const scene = item.scene || {};\n    const sceneId = scene.scene_id || ('scene_' + (idx + 1));\n    return {\n      scene_id: String(sceneId),\n      start_sec: scene.start_sec || 0,\n      end_sec: scene.end_sec || cfg.scene_seconds || 8,\n      narration_text: scene.narration_text || scene.narration_excerpt || '',\n      image_url: item.image_url,\n      video_prompt: scene.video_prompt || scene.image_prompt || '',\n      sound_design: scene.sound_design || 'ambient',\n      has_character: scene.has_character || false,\n      aspect_ratio: aspect\n    };\n  })\n} }];"
       },
       "id": "b2000008-0000-0000-0000-000000000008",
       "name": "Code - Build Manifest",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        2160,
+        4020,
         200
       ]
     },
     {
       "parameters": {
         "method": "POST",
-        "url": "={{ $('Code - Validate Input').first().json.providers.image.url + '?' + $('Code - Validate Input').first().json.providers.image.authName + '=' + $('Code - Validate Input').first().json.providers.image.authValue }}",
+        "url": "={{ (function() {\n  const img = $('Code - Validate Input').first().json.providers.image;\n  return img.authMode === 'query'\n    ? img.url + '?' + img.authName + '=' + img.authValue\n    : img.url;\n})() }}",
         "sendHeaders": true,
-        "specifyHeaders": "keypair",
-        "headerParameters": {
-          "parameters": [
-            {
-              "name": "Content-Type",
-              "value": "application/json"
-            }
-          ]
-        },
+        "specifyHeaders": "json",
         "sendBody": true,
         "specifyBody": "json",
         "jsonBody": "={{ JSON.stringify({ contents: [{ parts: [{ text: `YouTube thumbnail image for: ${$json.title}. Text overlay focus: ${$json.thumbnail_text}. Style hints: ${($json.seo_keywords || []).join(', ')}. Cinematic ${$json.aspect_ratio || '16:9'}, emotional, high contrast, no text, no watermark, no logo.` }] }], generationConfig: { responseModalities: ['TEXT', 'IMAGE'] } }) }}",
@@ -177,14 +162,15 @@
               "responseFormat": "json"
             }
           }
-        }
+        },
+        "jsonHeaders": "={{ (function() {\n  const img = $('Code - Validate Input').first().json.providers.image;\n  const h = { 'Content-Type': 'application/json', ...(img.extraHeaders || {}) };\n  if (img.authMode === 'header') h[img.authName] = img.authValue;\n  return JSON.stringify(h);\n})() }}"
       },
       "id": "b2000011-0000-0000-0000-000000000011",
       "name": "HTTP - Generate Thumbnail",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
-        2400,
+        4260,
         200
       ]
     },
@@ -198,7 +184,7 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        2640,
+        4500,
         200
       ]
     },
@@ -231,7 +217,7 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
-        2880,
+        4740,
         200
       ]
     },
@@ -245,9 +231,207 @@
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1.1,
       "position": [
-        3120,
+        4980,
         200
       ]
+    },
+    {
+      "id": "d2000001-0000-0000-0000-000000000001",
+      "name": "IF - Has Voice Script",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        420,
+        200
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "d2-cond-001",
+              "leftValue": "={{ $json.voice_script }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      }
+    },
+    {
+      "id": "d2000002-0000-0000-0000-000000000002",
+      "name": "Code - Clean Voice Script",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        600,
+        60
+      ],
+      "parameters": {
+        "jsCode": "const config = $input.first().json;\nreturn [{ json: { ...config, voice_script: config.voice_script.trim() } }];"
+      }
+    },
+    {
+      "id": "d2000003-0000-0000-0000-000000000003",
+      "name": "Code - Build Voice Request",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        600,
+        360
+      ],
+      "parameters": {
+        "jsCode": "const config = $input.first().json;\nconst prov = config.providers.script;\n\nconst prompt = `You are a professional video scriptwriter. Write a natural, engaging voice-over script for a ${config.channel_niche || 'general'} channel in ${config.language || 'English'}.\n\nThe script must:\n- Be suitable for voice-over narration only (no stage directions, no scene descriptions)\n- Target duration: ${config.target_duration_sec || 60} seconds when read aloud at normal pace (~130 words/min)\n- Match the visual style: ${config.visual_style || 'cinematic'}\n- Cover all key points from the narration content below\n\nTitle: ${config.title}\n\nNarration content:\n${config.narration_script}\n\nOutput ONLY the voice-over script text. No headers, no explanations, no markdown.`;\n\nlet voice_request;\nif (prov.requestFormat === 'claude_messages') {\n  voice_request = {\n    url: prov.url,\n    headers: {\n      'x-api-key': prov.authValue,\n      'anthropic-version': ((prov.extraHeaders || {})['anthropic-version'] || '2023-06-01'),\n      'content-type': 'application/json',\n    },\n    body: { model: prov.model, max_tokens: 2048, messages: [{ role: 'user', content: prompt }] },\n  };\n} else {\n  // openai_chat \u2014 Gemini compat\n  voice_request = {\n    url: prov.url,\n    headers: { [prov.authName]: prov.authValue, 'content-type': 'application/json' },\n    body: { model: prov.model, messages: [{ role: 'user', content: prompt }] },\n  };\n}\n\nreturn [{ json: { ...config, voice_request } }];"
+      }
+    },
+    {
+      "id": "d2000004-0000-0000-0000-000000000004",
+      "name": "HTTP - Generate Voice Script",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        840,
+        360
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $json.voice_request.url }}",
+        "sendHeaders": true,
+        "specifyHeaders": "json",
+        "jsonHeaders": "={{ JSON.stringify($json.voice_request.headers) }}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.voice_request.body) }}",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          },
+          "timeout": 60000
+        }
+      }
+    },
+    {
+      "id": "d2000005-0000-0000-0000-000000000005",
+      "name": "Code - Parse Voice Script",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1080,
+        360
+      ],
+      "parameters": {
+        "jsCode": "const resp = $input.first().json;\nconst config = $('Code - Build Voice Request').first().json;\n\nlet voice_script = '';\nif (resp.content?.[0]?.text) {\n  voice_script = resp.content[0].text.trim();\n} else if (resp.choices?.[0]?.message?.content) {\n  voice_script = resp.choices[0].message.content.trim();\n}\n\nif (!voice_script) throw new Error('Voice Script Resolver: LLM returned empty response');\n\n// Rebuild script_request user message with the resolved voice_script\nconst sr = config.script_request;\nconst sceneCountLabel = config.scene_count || 'an appropriate number of';\nconst durationLabel = config.target_duration_sec || (config.scene_seconds * (config.scene_count || 8));\nconst newUserContent = `Divide the voice-over script below into EXACTLY ${sceneCountLabel} scenes. Target duration: ${durationLabel}s (~${config.scene_seconds}s per scene). Aspect ratio: ${config.aspect_ratio}.\n\nVoice-over script (divide this verbatim into scenes):\n\"\"\"\n${voice_script}\n\"\"\"\n\nTitle: ${config.title}\n\nJSON output format:\n{\n  \"style_bible\": \"global visual rules: palette, lens style, lighting, mood used across ALL scenes\",\n  \"character_bible\": \"consistent physical appearance and visual traits of the character across all scenes (empty string if no character)\",\n  \"scenes\": [\n    {\n      \"scene_id\": 1,\n      \"start_sec\": 0,\n      \"end_sec\": ${config.scene_seconds},\n      \"narration_text\": \"<verbatim copy-paste from the script above>\",\n      \"image_prompt\": \"...\",\n      \"video_prompt\": \"...\",\n      \"camera_motion\": \"dolly_in\",\n      \"sound_design\": \"...\",\n      \"has_character\": true\n    }\n  ]\n}\n\nIMPORTANT: Before outputting, verify scenes.length === ${sceneCountLabel}. Verify narration_text values are verbatim from the script.`;\nconst updatedMessages = sr.body.messages.map(m => m.role === 'user' ? { ...m, content: newUserContent } : m);\nconst script_request = { ...sr, body: { ...sr.body, messages: updatedMessages } };\nreturn [{ json: { ...config, voice_script, script_request } }];"
+      }
+    },
+    {
+      "id": "validate-manifest-001",
+      "name": "Code - Validate Manifest",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1680,
+        200
+      ],
+      "parameters": {
+        "jsCode": "const base = $input.first().json;\nconst plan = base.scene_plan || {};\nlet scenes = Array.isArray(plan.scenes) ? plan.scenes : [];\nconst voiceScript = (base.voice_script || base.narration_script || '').trim();\nconst requestedN = base.scene_count;\nconst targetDuration = base.target_duration_sec;\nconst errors = [];\nconst warnings = [];\n\n// Normalize style_bible: AI sometimes returns object instead of string\nif (plan.style_bible && typeof plan.style_bible !== 'string') {\n  plan.style_bible = Object.values(plan.style_bible).filter(Boolean).join('. ');\n}\nif (plan.character_bible && typeof plan.character_bible !== 'string') {\n  plan.character_bible = Object.values(plan.character_bible).filter(Boolean).join('. ');\n}\n\n// Check 1: scene count\nconst actualN = scenes.length;\nif (actualN === 0) {\n  throw new Error('Manifest fatal: scenes array is empty \u2014 AI returned no scenes');\n}\nif (requestedN !== null && requestedN !== undefined && actualN !== requestedN) {\n  const diff = Math.abs(actualN - requestedN);\n  if (diff > 2) {\n    throw new Error(`Manifest fatal: got ${actualN} scenes, expected ${requestedN} (diff ${diff} > 2 \u2014 beyond repair threshold)`);\n  }\n  errors.push(`scene_count mismatch: got ${actualN}, expected ${requestedN}`);\n}\n\n// Check 2: required fields per scene\nfor (const scene of scenes) {\n  const id = scene.scene_id ?? '?';\n  if (!scene.narration_text) {\n    throw new Error(`Manifest fatal: scene ${id} missing narration_text \u2014 cannot recover without verbatim script`);\n  }\n  if (!scene.image_prompt) {\n    errors.push(`scene ${id} missing image_prompt`);\n  }\n  for (const f of ['video_prompt', 'camera_motion', 'sound_design']) {\n    if (scene[f] === undefined || scene[f] === null || scene[f] === '') {\n      warnings.push(`scene ${id} missing optional ${f}`);\n    }\n  }\n  if (scene.has_character === undefined || scene.has_character === null) {\n    warnings.push(`scene ${id} missing has_character`);\n  }\n}\n\n// Check 3: narration concat \u2248 voice_script (fuzzy word similarity)\nfunction norm(s) {\n  return s.toLowerCase().replace(/[^\\w\\s]/g, ' ').replace(/\\s+/g, ' ').trim();\n}\nfunction wordSim(a, b) {\n  const wA = a.split(/\\s+/).filter(Boolean);\n  const wB = b.split(/\\s+/).filter(Boolean);\n  if (wA.length === 0 && wB.length === 0) return 1.0;\n  const freq = {};\n  wA.forEach(w => freq[w] = (freq[w] || 0) + 1);\n  let common = 0;\n  wB.forEach(w => { if (freq[w] > 0) { common++; freq[w]--; } });\n  return common / Math.max(wA.length, wB.length);\n}\nconst concatNarr = scenes.map(s => s.narration_text).join(' ');\nconst similarity = wordSim(norm(concatNarr), norm(voiceScript));\nconst simPct = Math.round(similarity * 100);\n\nif (similarity < 0.70) {\n  throw new Error(`Manifest fatal: narration similarity ${simPct}% < 70% \u2014 AI rewrote script instead of splitting verbatim`);\n}\nif (similarity < 0.95) {\n  errors.push(`narration_similarity: ${simPct}% (below 95% threshold)`);\n}\n\n// Check 4: duration range (warn only \u2014 not fatal, scene seconds may vary)\nif (targetDuration && scenes.length > 0) {\n  const maxEnd = Math.max(...scenes.map(s => s.end_sec || 0));\n  if (maxEnd > 0) {\n    const ratio = maxEnd / targetDuration;\n    if (ratio < 0.5 || ratio > 2.0) {\n      warnings.push(`duration: last end_sec=${maxEnd}s vs target=${targetDuration}s (ratio ${ratio.toFixed(2)} outside 0.5\u20132.0)`);\n    }\n  }\n}\n\nconst repair_needed = errors.length > 0;\nreturn [{ json: {\n  ...base,\n  scene_plan: { ...plan, scenes },\n  manifest_valid: !repair_needed,\n  manifest_repair_needed: repair_needed,\n  manifest_errors: errors,\n  manifest_warnings: warnings,\n  manifest_narration_similarity: simPct,\n} }];"
+      }
+    },
+    {
+      "id": "if-needs-repair-001",
+      "name": "IF - Needs Repair",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1860,
+        200
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "f2-cond-001",
+              "leftValue": "={{ $json.manifest_repair_needed }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      }
+    },
+    {
+      "id": "build-repair-request-001",
+      "name": "Code - Build Repair Request",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2100,
+        400
+      ],
+      "parameters": {
+        "jsCode": "const base = $input.first().json;\nconst prov = base.providers.script;\nconst plan = base.scene_plan;\nconst errors = base.manifest_errors || [];\nconst voiceScript = base.voice_script || base.narration_script || '';\nconst sceneCount = base.scene_count;\nconst sceneSeconds = base.scene_seconds || 8;\n\nconst systemPrompt = `You are a JSON repair specialist for video scene plans. Fix ONLY the listed errors without changing anything that is already correct. Output STRICT JSON only \u2014 no markdown fences, no explanation.`;\n\nconst userMsg = `Repair the scene plan JSON below.\n\nVoice-over script (scenes must split this verbatim):\n\"\"\"\n${voiceScript}\n\"\"\"\n\nRequested scene count: ${sceneCount || 'inferred from script length'}\nTarget ~${sceneSeconds}s per scene\n\nErrors to fix:\n${errors.map((e, i) => `${i + 1}. ${e}`).join('\\n')}\n\nBroken JSON:\n${JSON.stringify(plan, null, 2)}\n\nRules:\n- scenes array MUST have exactly ${sceneCount || 'the correct number of'} items\n- Each narration_text must be a verbatim substring of the voice-over script above\n- Concatenating all narration_text values must reconstruct the full voice-over script\n- Preserve image_prompt, video_prompt, camera_motion, sound_design from original where correct\n\nOutput only the corrected JSON object with top-level keys: style_bible, character_bible, scenes[].`;\n\nlet repair_request;\nif (prov.requestFormat === 'claude_messages') {\n  repair_request = {\n    url: prov.url,\n    headers: {\n      'x-api-key': prov.authValue,\n      'anthropic-version': ((prov.extraHeaders || {})['anthropic-version'] || '2023-06-01'),\n      'content-type': 'application/json',\n    },\n    body: { model: prov.model, max_tokens: 4096, system: systemPrompt, messages: [{ role: 'user', content: userMsg }] },\n  };\n} else {\n  repair_request = {\n    url: prov.url,\n    headers: { [prov.authName]: prov.authValue, 'content-type': 'application/json' },\n    body: { model: prov.model, messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: userMsg }] },\n  };\n}\nreturn [{ json: { ...base, repair_request } }];"
+      }
+    },
+    {
+      "id": "http-ai-repair-001",
+      "name": "HTTP - AI Repair JSON",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        2340,
+        400
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $input.first().json.repair_request.url }}",
+        "sendHeaders": true,
+        "specifyHeaders": "json",
+        "jsonHeaders": "={{ JSON.stringify($input.first().json.repair_request.headers) }}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($input.first().json.repair_request.body) }}",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          },
+          "timeout": 60000
+        }
+      }
+    },
+    {
+      "id": "parse-repair-response-001",
+      "name": "Code - Parse Repair Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2580,
+        400
+      ],
+      "parameters": {
+        "jsCode": "const resp = $input.first().json;\nconst config = $('Code - Build Repair Request').first().json;\n\nlet rawText = '';\nif (resp.content?.[0]?.text) {\n  rawText = resp.content[0].text.trim();\n} else if (resp.choices?.[0]?.message?.content) {\n  rawText = resp.choices[0].message.content.trim();\n}\nif (!rawText) throw new Error('AI Repair: LLM returned empty response');\n\n// Strip markdown fences\nrawText = rawText.replace(/^```(?:json)?\\s*/i, '').replace(/\\s*```\\s*$/i, '').trim();\n\nlet plan;\ntry {\n  plan = JSON.parse(rawText);\n} catch (e) {\n  throw new Error(`AI Repair: JSON parse failed \u2014 ${e.message}. Response: ${rawText.slice(0, 200)}`);\n}\n\nconst scenes = Array.isArray(plan.scenes) ? plan.scenes : [];\nconst requestedN = config.scene_count;\nconst voice = (config.voice_script || config.narration_script || '').trim();\n\n// Fatal checks \u2014 repair already tried once\nif (scenes.length === 0) throw new Error('AI Repair failed: repaired plan has no scenes');\nif (requestedN && Math.abs(scenes.length - requestedN) > 2) {\n  throw new Error(`AI Repair failed: still wrong scene count \u2014 got ${scenes.length}, expected ${requestedN}`);\n}\nfor (const s of scenes) {\n  if (!s.narration_text) throw new Error(`AI Repair failed: scene ${s.scene_id} still missing narration_text`);\n}\n\nfunction norm(s) { return s.toLowerCase().replace(/[^\\w\\s]/g, ' ').replace(/\\s+/g, ' ').trim(); }\nfunction wordSim(a, b) {\n  const wA = a.split(/\\s+/).filter(Boolean), wB = b.split(/\\s+/).filter(Boolean);\n  if (!wA.length && !wB.length) return 1;\n  const freq = {};\n  wA.forEach(w => freq[w] = (freq[w] || 0) + 1);\n  let common = 0;\n  wB.forEach(w => { if (freq[w] > 0) { common++; freq[w]--; } });\n  return common / Math.max(wA.length, wB.length);\n}\nconst sim = wordSim(norm(scenes.map(s => s.narration_text).join(' ')), norm(voice));\nconst simPct = Math.round(sim * 100);\nif (sim < 0.70) throw new Error(`AI Repair failed: narration similarity still ${simPct}% after repair`);\n\n// Normalize bibles to string\nif (plan.style_bible && typeof plan.style_bible !== 'string') {\n  plan.style_bible = Object.values(plan.style_bible).filter(Boolean).join('. ');\n}\nif (plan.character_bible && typeof plan.character_bible !== 'string') {\n  plan.character_bible = Object.values(plan.character_bible).filter(Boolean).join('. ');\n}\n\nreturn [{ json: {\n  ...config,\n  scene_plan: plan,\n  manifest_valid: true,\n  manifest_repaired: true,\n  manifest_repair_needed: false,\n  manifest_narration_similarity: simPct,\n} }];"
+      }
     }
   ],
   "connections": {
@@ -266,7 +450,7 @@
       "main": [
         [
           {
-            "node": "AI - Scene Breakdown",
+            "node": "IF - Has Voice Script",
             "type": "main",
             "index": 0
           }
@@ -288,7 +472,7 @@
       "main": [
         [
           {
-            "node": "Code - Split Scenes",
+            "node": "Code - Validate Manifest",
             "type": "main",
             "index": 0
           }
@@ -366,6 +550,130 @@
         [
           {
             "node": "Respond to Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF - Has Voice Script": {
+      "main": [
+        [
+          {
+            "node": "Code - Clean Voice Script",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Code - Build Voice Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Clean Voice Script": {
+      "main": [
+        [
+          {
+            "node": "AI - Scene Breakdown",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Build Voice Request": {
+      "main": [
+        [
+          {
+            "node": "HTTP - Generate Voice Script",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP - Generate Voice Script": {
+      "main": [
+        [
+          {
+            "node": "Code - Parse Voice Script",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Parse Voice Script": {
+      "main": [
+        [
+          {
+            "node": "AI - Scene Breakdown",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Validate Manifest": {
+      "main": [
+        [
+          {
+            "node": "IF - Needs Repair",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF - Needs Repair": {
+      "main": [
+        [
+          {
+            "node": "Code - Build Repair Request",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Code - Split Scenes",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Build Repair Request": {
+      "main": [
+        [
+          {
+            "node": "HTTP - AI Repair JSON",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP - AI Repair JSON": {
+      "main": [
+        [
+          {
+            "node": "Code - Parse Repair Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Parse Repair Response": {
+      "main": [
+        [
+          {
+            "node": "Code - Split Scenes",
             "type": "main",
             "index": 0
           }

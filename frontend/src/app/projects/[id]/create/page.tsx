@@ -1,7 +1,7 @@
 'use client';
 import { useState, use, useEffect, useRef } from 'react';
 import { useMutation, useQuery } from '@tanstack/react-query';
-import { createYoutubeSource, createManualSource, getProject, getCharacters } from '@/lib/api';
+import { createYoutubeSource, createManualSource, getProject, getCharacters, estimateCost } from '@/lib/api';
 import { AlertTriangle, Youtube, PenLine, Newspaper, BookOpen, Save, Check, Film, Clock, Ratio, Gauge, User } from 'lucide-react';
 import { toast } from 'sonner';
 import { VoiceConfigPanel } from '@/components/video/VoiceConfigPanel';
@@ -48,6 +48,7 @@ const ASPECT_OPTIONS: { label: string; value: AspectRatio; hint: string }[] = [
 ];
 
 const QUALITY_CAPS: Record<string, number> = { draft: 3, standard: 5, premium: 8 };
+const COST_ALERT_THRESHOLD = 3.00;
 
 export default function CreatePage({ params }: { params: Promise<{ id: string }> }) {
   const { id: projectId } = use(params);
@@ -59,6 +60,12 @@ export default function CreatePage({ params }: { params: Promise<{ id: string }>
   const [voiceConfig, setVoiceConfig] = useState<any>({});
   const [form, setForm] = useState<FormState>(EMPTY);
   const [activeSourceId, setActiveSourceIdState] = useState<string | null>(null);
+  const { data: costEstimate } = useQuery({
+    queryKey: ['estimate-cost', projectId, form.sceneCount, form.qualityMode],
+    queryFn: () => estimateCost(projectId, Number(form.sceneCount), form.qualityMode || undefined),
+    enabled: form.sceneCount !== '' && Number(form.sceneCount) >= 3,
+    staleTime: 30_000,
+  });
   const [draftSavedAt, setDraftSavedAt] = useState<number | null>(null);
   const progressRef = useRef<HTMLDivElement | null>(null);
 
@@ -133,6 +140,10 @@ export default function CreatePage({ params }: { params: Promise<{ id: string }>
   });
 
   const submit = () => {
+    if (
+      costEstimate?.estimatedCostUsd > COST_ALERT_THRESHOLD &&
+      !window.confirm(`Chi phí ước tính $${costEstimate.estimatedCostUsd} vượt ngưỡng $${COST_ALERT_THRESHOLD}. Xác nhận tiếp tục?`)
+    ) return;
     if (form.tab === 'youtube') ytMutation.mutate();
     else manualMutation.mutate();
   };
@@ -322,11 +333,16 @@ export default function CreatePage({ params }: { params: Promise<{ id: string }>
           </div>
         </div>
 
-        {form.sceneCount !== '' && form.targetDurationSec !== '' && Number(form.sceneCount) > 0 && (
-          <div className="text-xs text-zinc-500 mt-3">
-            ≈ {(Number(form.targetDurationSec) / Number(form.sceneCount)).toFixed(1)}s / scene
-          </div>
-        )}
+        <div className="flex items-center justify-between text-xs mt-3">
+          {form.sceneCount !== '' && form.targetDurationSec !== '' && Number(form.sceneCount) > 0 ? (
+            <span className="text-zinc-500">≈ {(Number(form.targetDurationSec) / Number(form.sceneCount)).toFixed(1)}s / scene</span>
+          ) : <span />}
+          {costEstimate && (
+            <span className={`font-medium ${costEstimate.estimatedCostUsd > COST_ALERT_THRESHOLD ? 'text-rose-400' : 'text-emerald-400'}`}>
+              {costEstimate.estimatedCostUsd > COST_ALERT_THRESHOLD ? '⚠️' : '💰'} Ước tính ~${costEstimate.estimatedCostUsd}
+            </span>
+          )}
+        </div>
       </div>
 
       <AiConfigPanel projectId={projectId} config={{ ...project, ...voiceConfig }}

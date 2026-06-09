@@ -16,6 +16,17 @@ type VideoConfig = {
   aspectRatio?: '16:9' | '9:16' | '1:1';
 };
 
+const VIDEO_COSTS: Record<string, number> = {
+  veo3: 0.59,
+  runway: 0.59,
+  slideshow: 0.04,
+  local: 0.04,
+};
+
+function costPerScene(videoProvider: string, _videoModel?: string): number {
+  return VIDEO_COSTS[videoProvider?.toLowerCase()] ?? 0.65;
+}
+
 function pickVideoConfig(dto: VideoConfig): VideoConfig {
   return {
     sceneCount: dto.sceneCount,
@@ -91,6 +102,19 @@ export class SourceService {
         videoProvider: true, videoModel: true,
       },
     });
+    // K.5 Budget pre-flight — abort early before creating any DB records
+    if (videoConfig.sceneCount) {
+      const vProvider = project?.videoProvider ?? 'slideshow';
+      const perScene = costPerScene(vProvider, project?.videoModel);
+      const estimatedCost = perScene * videoConfig.sceneCount;
+      const budgetLimit = parseFloat(this.config.get('BUDGET_LIMIT_PER_VIDEO', '5'));
+      if (estimatedCost > budgetLimit) {
+        throw new BadRequestException(
+          `Chi phí ước tính $${estimatedCost.toFixed(2)} vượt ngưỡng $${budgetLimit.toFixed(2)} — ${videoConfig.sceneCount} scenes × $${perScene.toFixed(2)} (${vProvider}). Giảm số scenes hoặc đổi provider.`,
+        );
+      }
+    }
+
     const source = await this.prisma.apiSource.create({
       data: {
         projectId: dto.projectId,
@@ -121,6 +145,13 @@ export class SourceService {
       video: { provider: project?.videoProvider ?? 'slideshow', model: project?.videoModel ?? 'slideshow' },
     };
 
+    const character = dto.characterId
+      ? await this.prisma.character.findUnique({
+          where: { id: dto.characterId },
+          select: { name: true, description: true, imageUrl: true },
+        })
+      : null;
+
     firstValueFrom(
       this.http.post(`${n8nBase}/webhook/generate-scenes`, {
         sourceId: source.id,
@@ -136,6 +167,7 @@ export class SourceService {
         voice_script: dto.voiceScript,
         quality_mode: dto.qualityMode,
         character_id: dto.characterId,
+        character: character ?? null,
         channel_niche: project?.niche,
         language: project?.language,
         visual_style: project?.visualStyle,
@@ -175,6 +207,25 @@ export class SourceService {
         errorMsg: `Pipeline timeout sau 15 phút — worker không báo hoàn thành. Thường do API quota hết hoặc worker lỗi. Xem /jobs để chi tiết.`,
       },
     }).catch(() => {});
+  }
+
+  async estimateCost(projectId: string, sceneCount: number, qualityMode?: string) {
+    const project = await this.prisma.project.findUnique({
+      where: { id: projectId },
+      select: { videoProvider: true, videoModel: true },
+    });
+    const videoProvider = project?.videoProvider ?? 'slideshow';
+    const videoModel = project?.videoModel ?? undefined;
+    const costPerSceneUsd = costPerScene(videoProvider, videoModel);
+    const count = isNaN(sceneCount) || sceneCount < 1 ? 1 : sceneCount;
+    return {
+      projectId,
+      sceneCount: count,
+      qualityMode: qualityMode || null,
+      videoProvider,
+      costPerSceneUsd,
+      estimatedCostUsd: parseFloat((count * costPerSceneUsd).toFixed(2)),
+    };
   }
 
   async listByProject(projectId: string) {

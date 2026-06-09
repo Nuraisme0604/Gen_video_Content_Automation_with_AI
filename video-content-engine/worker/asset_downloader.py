@@ -1,10 +1,13 @@
 import os
 import time
+import threading
 import requests
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 import logging
 from pathlib import Path
+
+_veo3_semaphore = threading.Semaphore(int(os.getenv("MAX_CONCURRENT_VEO", "3")))
 
 logger = logging.getLogger(__name__)
 
@@ -90,7 +93,7 @@ def _generate_video_from_prompt(prompt: str, dest_path: str, image_path: str = N
         # Free fallback: convert image to MP4 via ffmpeg (Ken Burns zoom effect)
         if not image_path or not Path(image_path).exists():
             logger.warning(f"Slideshow needs image_path, none provided")
-            return False
+            return False, False
         duration = int(os.getenv("SCENE_VIDEO_SECONDS", "8"))
         Path(dest_path).parent.mkdir(parents=True, exist_ok=True)
         import subprocess
@@ -105,22 +108,56 @@ def _generate_video_from_prompt(prompt: str, dest_path: str, image_path: str = N
             r = subprocess.run(cmd, capture_output=True, timeout=120)
             if r.returncode == 0 and Path(dest_path).exists():
                 logger.info(f"Slideshow video created: {dest_path}")
-                return True
+                return True, False
             logger.error(f"ffmpeg failed: {r.stderr.decode()[:300]}")
-            return False
+            return False, False
         except Exception as e:
             logger.error(f"Slideshow gen failed: {e}")
-            return False
+            return False, False
 
     if provider == "veo3":
-        from veo3_generator import generate_video_veo3
+        from veo3_generator import generate_video_veo3, Veo3TransientError, Veo3PermanentError
         duration = int(os.getenv("SCENE_VIDEO_SECONDS", "8"))
-        return generate_video_veo3(
-            prompt,
-            dest_path,
-            duration_seconds=duration,
-            image_path=image_path if use_image else None,
-        )
+        img = image_path if use_image else None
+        veo3_ok = False
+        with _veo3_semaphore:
+            try:
+                veo3_ok = generate_video_veo3(prompt, dest_path, duration_seconds=duration, image_path=img)
+            except Veo3PermanentError as e:
+                logger.error(f"Veo3 permanent failure (no retry): {e}")
+            except Veo3TransientError as e:
+                logger.warning(f"Veo3 transient error, retrying once: {e}")
+                try:
+                    veo3_ok = generate_video_veo3(prompt, dest_path, duration_seconds=duration, image_path=img)
+                except (Veo3TransientError, Veo3PermanentError) as e2:
+                    logger.error(f"Veo3 retry failed: {e2}")
+        if veo3_ok:
+            return True, False
+        # Ken Burns fallback: Veo3 failed → slideshow from scene image
+        logger.warning("Veo3 failed, falling back to Ken Burns slideshow")
+        if not image_path or not Path(image_path).exists():
+            logger.error("Veo3 fallback skipped: no scene image available")
+            return False, False
+        fb_dur = int(os.getenv("SCENE_VIDEO_SECONDS", "8"))
+        Path(dest_path).parent.mkdir(parents=True, exist_ok=True)
+        import subprocess
+        try:
+            cmd = [
+                "ffmpeg", "-y", "-loop", "1", "-i", image_path,
+                "-c:v", "libx264", "-preset", "medium", "-crf", "20",
+                "-t", str(fb_dur), "-pix_fmt", "yuv420p",
+                "-vf", f"scale=1920:1080:flags=lanczos:force_original_aspect_ratio=increase,crop=1920:1080,zoompan=z='min(zoom+0.0015,1.5)':d={fb_dur*30}:s=1920x1080:fps=30",
+                "-r", "30", dest_path,
+            ]
+            r = subprocess.run(cmd, capture_output=True, timeout=120)
+            if r.returncode == 0 and Path(dest_path).exists():
+                logger.info(f"Ken Burns fallback video created: {dest_path}")
+                return True, True
+            logger.error(f"Ken Burns fallback ffmpeg failed: {r.stderr.decode()[:300]}")
+            return False, False
+        except Exception as e:
+            logger.error(f"Ken Burns fallback failed: {e}")
+            return False, False
 
     elif provider == "runway":
         # Submit Runway job then poll
@@ -144,17 +181,17 @@ def _generate_video_from_prompt(prompt: str, dest_path: str, image_path: str = N
             task_id = resp.json().get("id")
             if not task_id:
                 logger.error("Runway submit returned no task id")
-                return False
+                return False, False
             video_url = poll_runway_task(task_id, api_key)
             if video_url:
-                return download_file(video_url, dest_path)
+                return download_file(video_url, dest_path), False
         except Exception as e:
             logger.error(f"Runway video generation failed: {e}")
-        return False
+        return False, False
 
     else:
         logger.error(f"Unknown VIDEO_PROVIDER: {provider}")
-        return False
+        return False, False
 
 
 def download_assets_for_scene(scene: dict, assets_dir: str, runway_api_key: str,
@@ -164,7 +201,7 @@ def download_assets_for_scene(scene: dict, assets_dir: str, runway_api_key: str,
     scene_dir = Path(assets_dir)
     scene_dir.mkdir(parents=True, exist_ok=True)
 
-    results = {"scene_id": scene_id, "video_path": None, "audio_path": None, "image_path": None}
+    results = {"scene_id": scene_id, "video_path": None, "audio_path": None, "image_path": None, "fallback_used": False}
 
     # 1. Save image — accepts http(s) URL or data:image/...;base64,... (Gemini image gen)
     image_url = scene.get("image_url") or scene.get("image")
@@ -183,7 +220,7 @@ def download_assets_for_scene(scene: dict, assets_dir: str, runway_api_key: str,
                 results["image_path"] = img_path
 
     # 2. Voiceover via Edge TTS (free, no API key required) or ElevenLabs
-    text = scene.get("narration_excerpt", "")
+    text = scene.get("narration_text", "")
     if text:
         audio_path = str(scene_dir / f"scene_{scene_id}_voice.mp3")
         if generate_voiceover(text, audio_path, voice_id or "", elevenlabs_api_key or ""):
@@ -208,8 +245,10 @@ def download_assets_for_scene(scene: dict, assets_dir: str, runway_api_key: str,
     elif video_prompt:
         # Pass DALL-E scene image (if downloaded) as initial frame → image-to-video
         # giúp visual của Veo3 video khớp với scene image (consistency between scenes)
-        if _generate_video_from_prompt(video_prompt, vid_path, image_path=results.get("image_path")):
+        gen_ok, fallback_used = _generate_video_from_prompt(video_prompt, vid_path, image_path=results.get("image_path"))
+        if gen_ok:
             results["video_path"] = vid_path
+        results["fallback_used"] = fallback_used
     else:
         logger.warning(f"Scene {scene_id}: no video_url, task_id, or video_prompt — skipping video")
 

@@ -41,4 +41,8 @@ export class JobsGateway {
   emitJobFailed(videoId: string, payload: { error: string }) {
     this.server.to(`video:${videoId}`).emit('job:failed', { videoId, ...payload });
   }
+
+  emitSceneProgress(videoId: string, payload: { sceneIndex: number; status: string }) {
+    this.server.to(`video:${videoId}`).emit('scene-progress', { videoId, ...payload });
+  }
 }

@@ -6,6 +6,17 @@ from typing import Optional
 
 logger = logging.getLogger(__name__)
 
+_PERMANENT_SIGNALS = ("401", "403", "permission", "policy", "safety", "billing", "unauthorized", "access denied", "not authorized")
+_TRANSIENT_SIGNALS = ("429", "503", "rate limit", "quota", "service unavailable", "connection", "timeout", "network")
+
+
+class Veo3PermanentError(Exception):
+    """Raised for permanent Veo3 failures (auth/policy) — do not retry."""
+
+
+class Veo3TransientError(Exception):
+    """Raised for transient Veo3 API failures (429/503/network) — safe to retry."""
+
 
 def generate_video_veo3(
     prompt: str,
@@ -120,5 +131,10 @@ def generate_video_veo3(
         return True
 
     except Exception as e:
+        err_str = str(e).lower()
+        if any(sig in err_str for sig in _PERMANENT_SIGNALS):
+            raise Veo3PermanentError(str(e)) from e
+        if any(sig in err_str for sig in _TRANSIENT_SIGNALS):
+            raise Veo3TransientError(str(e)) from e
         logger.error(f"Veo3 generation failed: {e}", exc_info=True)
         return False
