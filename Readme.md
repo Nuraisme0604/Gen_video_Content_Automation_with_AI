@@ -39,6 +39,7 @@ graph TB
 | **Manifest validator + AI repair** | Validate output JSON (similarity, fields, count) → repair 1x nếu lỗi nhẹ → fail-fast nếu nặng |
 | **Veo3 video gen** | `VIDEO_PROVIDER=veo3` → Vertex AI Veo 3.1, image-to-video mode; retry transient → Ken Burns fallback |
 | **Ken Burns fallback** | Veo3 fail permanent/transient → ffmpeg zoompan slideshow, pipeline không bao giờ stuck |
+| **Gemini session (free)** | `gemini_session` → tạo video bằng tài khoản Gemini Pro/Ultra (cookie phiên qua app login), không tốn API key. Lựa chọn song song Veo3, chọn per-project. Xem §4.4 |
 | **Semaphore Veo3** | Max 3 concurrent Veo call (override `MAX_CONCURRENT_VEO`) |
 | **Scene checkpoint** | Mỗi scene done → upload clip lên MinIO ngay, không mất nếu worker crash |
 | **Cost guard** | BE pre-flight estimate vs `BUDGET_LIMIT_PER_VIDEO`; FE badge đỏ + confirm dialog nếu > $3 |
@@ -108,6 +109,30 @@ docker compose up -d python_worker
 ```
 
 Nếu không có Veo3, mặc định `VIDEO_PROVIDER=slideshow` (Ken Burns ffmpeg, miễn phí).
+
+### 4.4 Dùng tài khoản Gemini Pro/Ultra thay API key (`gemini_session`)
+
+Tạo video bằng gói subscription Gemini Pro/Ultra — **không tốn API key trả phí**. Là một **lựa chọn song song** với Veo3 (không thay thế), chọn per-project qua dropdown "Sinh video" → **"Tài khoản Gemini (Pro/Ultra)"**.
+
+**Kết nối tài khoản** (app login chạy trên máy người dùng, KHÔNG trong Docker):
+
+```bash
+# Dev: chạy trực tiếp
+pip install playwright          # dùng Chrome đã cài → khỏi tải chromium
+cd video-content-engine/worker
+python gemini_login.py          # mở cửa sổ → đăng nhập Google → tự gửi cookie về backend
+
+# Đóng gói cho người dùng cuối (1 file .exe, bấm đúp):
+pip install pyinstaller playwright
+pyinstaller --onefile --collect-all playwright gemini_login.py   # → dist/gemini_login.exe
+```
+
+Login xong → `/api-sources` hiện **"Đã kết nối"**. Cookie lưu mã hoá trong DB; worker đọc runtime, hết hạn thì render fallback về slideshow → đăng nhập lại để refresh. Đổi `BACKEND_URL` nếu backend không ở `http://localhost:3001`.
+
+> ⚠️ **Giới hạn quan trọng (browser automation login):**
+> - **Google có thể chặn đăng nhập** trong cửa sổ automation (báo *"This browser or app may not be secure"*). App đã thêm stealth (ẩn cờ `--enable-automation`, `navigator.webdriver`) nhưng **KHÔNG đảm bảo** qua được. Nếu bị chặn: dùng **profile Chrome đã đăng nhập sẵn** (đóng hết Chrome rồi cho app đọc cookie), hoặc **dán cookie** `__Secure-1PSID` / `__Secure-1PSIDTS` thủ công.
+> - **ToS:** tự động hoá phiên web có thể vi phạm điều khoản Google → **rủi ro khoá tài khoản**. Nên dùng **tài khoản phụ**.
+> - **Cap subscription:** gói có giới hạn ngày (vd Ultra ~5 video/ngày) → video nhiều scene có thể bị giới hạn; khi đó cân nhắc Veo3 API.
 
 ---
 

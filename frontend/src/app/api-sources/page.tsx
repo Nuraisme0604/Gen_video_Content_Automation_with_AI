@@ -223,6 +223,10 @@ export default function ApiSourcesPage() {
 
   const errMsg = (e: any) => e?.response?.data?.message || e?.message || 'Lỗi không xác định';
 
+  // Gemini session (cắm tài khoản, không cần API key) — 1 dòng provider=gemini_session
+  const geminiSession = (allKeys as ApiKey[]).find(k => k.provider === 'gemini_session');
+  const geminiConnected = !!geminiSession?.isActive;
+
   const add = useMutation({
     mutationFn: async () => {
       if (!form.capabilities.length) throw new Error('Phải chọn ít nhất 1 loại sử dụng');
@@ -495,6 +499,52 @@ export default function ApiSourcesPage() {
 
         <p className="text-xs text-zinc-500 px-4 py-3 border-t border-[--border]">
           🔒 Key được mã hoá AES-256 trước khi lưu. 1 key có thể dùng cho nhiều loại tác vụ (ví dụ Gemini key cover cả Script + Image + Video).
+        </p>
+      </div>
+
+      {/* Kết nối tài khoản Gemini — tạo video bằng gói Pro/Ultra, không cần API key */}
+      <div className="card p-5">
+        <div className="flex items-center justify-between gap-3 flex-wrap">
+          <div>
+            <h2 className="font-medium flex items-center gap-2">
+              <Sparkles size={16} className="text-violet-400" /> Kết nối tài khoản Gemini
+            </h2>
+            <p className="text-xs text-zinc-500 mt-1">
+              Tạo video bằng gói Gemini Pro/Ultra — không tốn API key. Bật bằng <code className="font-mono">VIDEO_PROVIDER=gemini_session</code>.
+            </p>
+          </div>
+          {geminiConnected ? (
+            <span className="inline-flex items-center gap-1.5 text-emerald-300 text-xs font-medium px-2 py-1 rounded-full bg-emerald-500/15 border border-emerald-500/30">
+              <CheckCircle2 size={12} /> Đã kết nối{geminiSession?.label ? ` · ${geminiSession.label}` : ''}
+            </span>
+          ) : (
+            <span className="inline-flex items-center gap-1.5 text-zinc-400 text-xs font-medium px-2 py-1 rounded-full bg-zinc-800 border border-zinc-700">
+              <XCircle size={12} /> Chưa kết nối
+            </span>
+          )}
+        </div>
+
+        <ol className="text-xs text-zinc-400 mt-3 space-y-1 list-decimal list-inside">
+          <li>Mở app <span className="font-mono text-zinc-200">GeminiLogin</span> (bấm đúp).</li>
+          <li>Đăng nhập Google như bình thường trong cửa sổ hiện ra.</li>
+          <li>Xong — bấm “Kiểm tra lại”, trạng thái sẽ chuyển “Đã kết nối”.</li>
+        </ol>
+
+        <div className="mt-3 flex items-center gap-2">
+          <button onClick={() => qc.invalidateQueries({ queryKey: ['api-keys'] })}
+            className="flex items-center gap-2 bg-zinc-800 hover:bg-zinc-700 text-sm px-4 py-2 rounded-lg">
+            <RotateCcw size={14} /> Kiểm tra lại
+          </button>
+          {geminiConnected && (
+            <button onClick={() => { if (geminiSession && confirm('Ngắt kết nối tài khoản Gemini?')) del.mutate(geminiSession.id); }}
+              className="flex items-center gap-2 text-rose-300 hover:text-rose-200 text-sm px-3 py-2 rounded-lg hover:bg-rose-500/15">
+              <Trash2 size={14} /> Ngắt kết nối
+            </button>
+          )}
+        </div>
+
+        <p className="text-[11px] text-amber-400/80 mt-3">
+          ⚠️ Nên dùng tài khoản phụ — tự động hoá phiên web có thể vi phạm điều khoản Google.
         </p>
       </div>
 

@@ -43,6 +43,12 @@ export class ApiKeyController {
   @Post()
   create(@Body() dto: CreateApiKeyDto) { return this.svc.create(dto); }
 
+  /** Receives Gemini session cookies captured by the login helper app (gemini_login). */
+  @Post('session')
+  upsertSession(@Body() body: { psid: string; psidts: string; account?: string }) {
+    return this.svc.upsertGeminiSession(body.psid, body.psidts, body.account);
+  }
+
   @Post('test')
   test(@Body() body: { key: string; provider: string }) {
     return this.svc.testKey(body.key, body.provider);

@@ -58,6 +58,7 @@ class RenderManifest(BaseModel):
     highlights: Optional[List[Dict[str, Any]]] = None  # For TikTok/Shorts clips
     core_emotion: Optional[str] = None  # Drives Suno BGM mood (e.g. "melancholic", "tense", "uplifting")
     thumbnail_url: Optional[str] = None  # DALL-E thumbnail URL from n8n
+    video_provider: Optional[str] = None  # Per-project user choice (BE injects from Project.videoProvider); None → env
 
 
 def _emit_scene_progress(video_id: str, scene_index: int, status: str) -> None:
@@ -74,10 +75,10 @@ def _emit_scene_progress(video_id: str, scene_index: int, status: str) -> None:
 
 def _download_single_scene(args: tuple) -> tuple:
     """Worker function for ThreadPoolExecutor."""
-    scene_order, scene, assets_dir, runway_key, elevenlabs_key, voice_id, video_id = args
+    scene_order, scene, assets_dir, runway_key, elevenlabs_key, voice_id, video_id, video_provider = args
     _emit_scene_progress(video_id, scene_order, "rendering")
     results = download_assets_for_scene(
-        scene.model_dump(), assets_dir, runway_key, elevenlabs_key, voice_id
+        scene.model_dump(), assets_dir, runway_key, elevenlabs_key, voice_id, video_provider
     )
     return scene_order, scene, results
 
@@ -244,7 +245,7 @@ def process_video_pipeline(manifest: RenderManifest):
         voice_id = os.getenv("ELEVENLABS_VOICE_ID", "")
 
         scene_args = [
-            (order, scene, assets_dir, runway_key, elevenlabs_key, voice_id, video_id)
+            (order, scene, assets_dir, runway_key, elevenlabs_key, voice_id, video_id, manifest.video_provider)
             for order, scene in enumerate(manifest.scenes)
         ]
 

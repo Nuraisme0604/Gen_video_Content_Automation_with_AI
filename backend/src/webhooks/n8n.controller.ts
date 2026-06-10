@@ -49,6 +49,16 @@ export class N8nWebhookController {
 
     const { episode_id, project_id, manifest } = body;
 
+    // Honor the per-project video provider the user picked in the UI so it actually
+    // drives the worker (worker falls back to env VIDEO_PROVIDER if this is absent).
+    if (manifest && project_id) {
+      const proj = await this.prisma.project.findUnique({
+        where: { id: project_id },
+        select: { videoProvider: true },
+      });
+      if (proj?.videoProvider) manifest.video_provider = proj.videoProvider;
+    }
+
     // Create or update video record
     const video = await this.prisma.video.upsert({
       where: { id: episode_id },

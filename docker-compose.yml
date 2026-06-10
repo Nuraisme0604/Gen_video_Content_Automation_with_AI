@@ -187,6 +187,9 @@ services:
       - SCENE_VIDEO_SECONDS=${SCENE_VIDEO_SECONDS:-8}
       - VEO3_POLL_TIMEOUT=${VEO3_POLL_TIMEOUT:-300}
       - USE_IMAGE_TO_VIDEO=${USE_IMAGE_TO_VIDEO:-true}
+      # Gemini session cookies (gemini_login.py ghi vào .env) — cho VIDEO_PROVIDER=gemini_session
+      - GEMINI_1PSID=${GEMINI_1PSID:-}
+      - GEMINI_1PSIDTS=${GEMINI_1PSIDTS:-}
       - GOOGLE_APPLICATION_CREDENTIALS=${GOOGLE_APPLICATION_CREDENTIALS:-/secrets/gcp-sa.json}
       # Voice (Edge TTS — free, no key)
       - VOICE_NAME=${VOICE_NAME:-vi-VN-NamMinhNeural}

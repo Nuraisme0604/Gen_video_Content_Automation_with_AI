@@ -21,6 +21,7 @@ const VIDEO_COSTS: Record<string, number> = {
   runway: 0.59,
   slideshow: 0.04,
   local: 0.04,
+  gemini_session: 0,  // tài khoản Gemini Pro/Ultra — gói phẳng, không tính phí per-video
 };
 
 function costPerScene(videoProvider: string, _videoModel?: string): number {

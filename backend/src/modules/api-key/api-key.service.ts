@@ -4,6 +4,7 @@ import { createCipheriv, createDecipheriv, createHash, randomBytes } from 'crypt
 import { PrismaService } from '../../prisma/prisma.service';
 import { NotificationService } from '../notification/notification.service';
 import { CreateApiKeyDto } from './dto/create-api-key.dto';
+import { ApiKeyType } from '@prisma/client';
 import { Capability, getProviderConfig, resolveProviderUrl, buildAuthValue } from '../../common/provider-registry';
 
 export interface ResolvedProvider {
@@ -193,6 +194,35 @@ export class ApiKeyService {
     };
   }
 
+  /**
+   * Upsert the Gemini web-session credential captured by the login helper app.
+   * Stores both session cookies as one encrypted JSON blob, reusing the ApiKey
+   * table (provider=gemini_session, type=VIDEO). Upserts the single session row so
+   * repeated logins refresh the cookies instead of piling up stale rows.
+   */
+  async upsertGeminiSession(psid: string, psidts: string, account?: string) {
+    const payload = JSON.stringify({ psid, psidts });
+    const data = {
+      provider: 'gemini_session',
+      type: 'VIDEO' as ApiKeyType,
+      label: account || 'Gemini session',
+      keyMasked: account || 'gemini-session',
+      keyHash: createHash('sha256').update(payload).digest('hex'),
+      keyEncrypted: this.encrypt(payload),
+      isActive: true,
+      lastTestedAt: new Date(),
+      lastTestStatus: 'ok',
+      lastTestError: null,
+    };
+    const existing = await this.prisma.apiKey.findFirst({
+      where: { provider: 'gemini_session', type: 'VIDEO' },
+    });
+    const select = { id: true, provider: true, type: true, label: true, keyMasked: true, isActive: true };
+    return existing
+      ? this.prisma.apiKey.update({ where: { id: existing.id }, data, select })
+      : this.prisma.apiKey.create({ data, select });
+  }
+
   /** Test if an API key is valid by hitting the provider's lightest endpoint. */
   async testKey(key: string, provider: string): Promise<{ ok: boolean; latencyMs?: number; error?: string; detail?: string }> {
     const t0 = Date.now();
@@ -226,6 +256,11 @@ export class ApiKeyService {
           url = 'https://api.pexels.com/v1/curated?per_page=1';
           headers = { Authorization: key };
           break;
+        case 'gemini_session':
+          // Web-session cookies can't be validated cheaply from the backend.
+          // Presence of stored cookies = "connected"; the worker surfaces real
+          // expiry at render time and re-login refreshes them.
+          return { ok: true, latencyMs: 0 };
         default:
           return { ok: false, error: `Provider "${provider}" chưa hỗ trợ test connection` };
       }

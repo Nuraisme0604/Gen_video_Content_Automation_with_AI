@@ -28,6 +28,10 @@ google-auth-httplib2>=0.1.1
 # >=1.10 yêu cầu cho image-to-video kwarg. Versions 1.0-1.4 fall back text-only tự động.
 google-genai>=1.10.0,<2.0.0
 
+# Gemini session — free video qua subscription Google AI Pro/Ultra (không cần API key).
+# Reverse-engineered web client, dùng bởi VIDEO_PROVIDER=gemini_session (song song với veo3).
+gemini-webapi>=1.0.0
+
 # Anthropic Claude (script refinement)
 anthropic>=0.39.0,<1.0.0
 

@@ -16,7 +16,13 @@ const SUGGESTED_MODELS: Record<string, string[]> = {
   replicate: ['black-forest-labs/flux-1.1-pro', 'kwaivgi/kling-1.6', 'luma/dream-machine'],
   pexels:    ['pexels-stock', 'pexels-video'],
   local:     ['slideshow'],
+  gemini_session: ['gemini-veo'],
   'edge-tts':['vi-VN-NamMinhNeural', 'vi-VN-HoaiMyNeural', 'en-US-AriaNeural', 'en-US-GuyNeural'],
+};
+
+// Friendly provider names for the dropdown (raw key shown if not listed).
+const PROVIDER_LABELS: Record<string, string> = {
+  gemini_session: 'Tài khoản Gemini (Pro/Ultra)',
 };
 
 // Brief tagline shown next to model when user picks it
@@ -38,6 +44,7 @@ const MODEL_NOTES: Record<string, string> = {
   'kwaivgi/kling-1.6': '$0.20/giây — cinematic',
   'pexels-video':      'Free — B-roll có sẵn',
   'slideshow':         'Free — Ken Burns ảnh tĩnh',
+  'gemini-veo':        'Free qua gói Gemini Pro/Ultra — không tốn API key',
   'eleven_multilingual_v2': '$0.30/min — đa NN, cảm xúc',
   'eleven_music':      '$22/tháng — AI nhạc nền',
   'tts-1':             '$0.02/1K char',
@@ -131,7 +138,7 @@ export function AiConfigPanel({ projectId, config, onChange }: Props) {
                 <option value="">— chọn provider —</option>
                 {providers.map(p => (
                   <option key={p} value={p}>
-                    {p}{FREE_PROVIDERS.includes(p) ? ' (free)' : ''}
+                    {PROVIDER_LABELS[p] || p}{FREE_PROVIDERS.includes(p) ? ' (free)' : ''}
                   </option>
                 ))}
                 {/* Show current provider even if no key (so user sees what's saved) */}

@@ -75,9 +75,10 @@ def poll_runway_task(task_id: str, api_key: str, max_retries: int = 30, delay: i
     return None
 
 
-def _generate_video_from_prompt(prompt: str, dest_path: str, image_path: str = None) -> bool:
+def _generate_video_from_prompt(prompt: str, dest_path: str, image_path: str = None, provider: str = None) -> bool:
     """
-    Route video generation to Veo3 or Runway based on VIDEO_PROVIDER env var.
+    Route video generation to a provider. Provider chosen per-project by the user
+    (passed down from the manifest); falls back to the VIDEO_PROVIDER env var.
 
     Args:
         prompt: Text description of the video.
@@ -85,8 +86,11 @@ def _generate_video_from_prompt(prompt: str, dest_path: str, image_path: str = N
         image_path: Optional reference image (DALL-E scene image). For Veo3,
                     enables image-to-video mode → visual continuity. For Runway,
                     currently ignored (Runway image-to-video uses different param).
+        provider: Video provider for this render. None → fall back to env.
     """
-    provider = os.getenv("VIDEO_PROVIDER", "slideshow").lower()
+    # Project stores provider as google/local/runway/gemini_session; map to worker names.
+    provider = (provider or os.getenv("VIDEO_PROVIDER", "slideshow")).lower()
+    provider = {"google": "veo3", "local": "slideshow", "vertex": "veo3"}.get(provider, provider)
     use_image = os.getenv("USE_IMAGE_TO_VIDEO", "true").lower() in ("true", "1", "yes")
 
     if provider == "slideshow":
@@ -114,6 +118,12 @@ def _generate_video_from_prompt(prompt: str, dest_path: str, image_path: str = N
         except Exception as e:
             logger.error(f"Slideshow gen failed: {e}")
             return False, False
+
+    if provider == "gemini_session":
+        # Free video qua subscription Gemini Pro/Ultra (cookie session) — song song với veo3.
+        from gemini_session_generator import generate_video_gemini_session
+        ok = generate_video_gemini_session(prompt, dest_path, image_path=image_path if use_image else None)
+        return ok, False
 
     if provider == "veo3":
         from veo3_generator import generate_video_veo3, Veo3TransientError, Veo3PermanentError
@@ -195,7 +205,8 @@ def _generate_video_from_prompt(prompt: str, dest_path: str, image_path: str = N
 
 
 def download_assets_for_scene(scene: dict, assets_dir: str, runway_api_key: str,
-                               elevenlabs_api_key: str, voice_id: str) -> dict:
+                               elevenlabs_api_key: str, voice_id: str,
+                               video_provider: str = None) -> dict:
     """Download/generate all assets for a single scene."""
     scene_id = str(scene.get("scene_id", "1"))
     scene_dir = Path(assets_dir)
@@ -245,7 +256,7 @@ def download_assets_for_scene(scene: dict, assets_dir: str, runway_api_key: str,
     elif video_prompt:
         # Pass DALL-E scene image (if downloaded) as initial frame → image-to-video
         # giúp visual của Veo3 video khớp với scene image (consistency between scenes)
-        gen_ok, fallback_used = _generate_video_from_prompt(video_prompt, vid_path, image_path=results.get("image_path"))
+        gen_ok, fallback_used = _generate_video_from_prompt(video_prompt, vid_path, image_path=results.get("image_path"), provider=video_provider)
         if gen_ok:
             results["video_path"] = vid_path
         results["fallback_used"] = fallback_used
