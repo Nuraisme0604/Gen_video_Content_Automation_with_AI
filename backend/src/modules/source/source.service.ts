@@ -133,12 +133,15 @@ export class SourceService {
     const n8nBase = this.config.get('N8N_BASE_URL', 'http://n8n:5678');
     await this.prisma.apiSource.update({ where: { id: source.id }, data: { status: 'sent_to_n8n' } });
 
-    // Resolve provider configs for each capability from project settings.
-    // safeResolve returns null for providers not in registry (e.g. pexels, local/slideshow) —
-    // workflow falls back to its own defaults for null slots. VIDEO is passthrough only.
+    // Free providers don't need an API key — pass provider/model directly.
+    const FREE_PROVIDERS = new Set(['pexels', 'local', 'edge-tts', 'gemini_session']);
+    const resolveOrFree = async (cap: Capability, provider: string, model: string) => {
+      if (FREE_PROVIDERS.has(provider)) return { provider, model, key: null };
+      return this.safeResolve(cap, provider, model);
+    };
     const [scriptProvider, imageProvider] = await Promise.all([
-      this.safeResolve('SCRIPT', project?.scriptProvider ?? 'google', project?.scriptModel ?? 'gemini-2.5-flash'),
-      this.safeResolve('IMAGE', project?.imageProvider ?? 'google', project?.imageModel ?? 'gemini-2.5-flash-image-preview'),
+      resolveOrFree('SCRIPT', project?.scriptProvider ?? 'google', project?.scriptModel ?? 'gemini-2.5-flash'),
+      resolveOrFree('IMAGE', project?.imageProvider ?? 'google', project?.imageModel ?? 'gemini-2.5-flash-image-preview'),
     ]);
     const providers = {
       script: scriptProvider,
@@ -176,15 +179,8 @@ export class SourceService {
         script_base_prompt: project?.scriptBasePrompt,
         providers,
       }, { timeout: 60000 }),
-    ).catch((err) => {
-      const status = err?.response?.status;
-      const msg = status
-        ? `n8n trả lỗi HTTP ${status} — kiểm tra workflow "Scene Generation" còn active không`
-        : `Không gọi được n8n: ${err?.message || 'unknown'}`;
-      this.prisma.apiSource.update({
-        where: { id: source.id },
-        data: { status: 'failed', errorMsg: msg },
-      }).catch(() => {});
+    ).catch(() => {
+      this.prisma.apiSource.delete({ where: { id: source.id } }).catch(() => {});
     });
 
     return { ...source, status: 'sent_to_n8n' };

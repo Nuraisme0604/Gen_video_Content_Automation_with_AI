@@ -26,6 +26,7 @@ export function PipelineProgress({ projectId, sourceId, onClose }: Props) {
   const [sceneStates, setSceneStates] = useState<Record<number, SceneStatus>>({});
   const [selectedScene, setSelectedScene] = useState<number | null>(null);
   const renderStartRef = useRef<number | null>(null);
+  const seenSourceRef = useRef(false);
 
   useEffect(() => {
     const t = setInterval(() => setElapsed(e => e + 1), 1000);
@@ -51,7 +52,7 @@ export function PipelineProgress({ projectId, sourceId, onClose }: Props) {
   }, [sourceId]);
 
   // Poll source status
-  const { data: source } = useQuery({
+  const { data: source, isSuccess: sourceResolved } = useQuery({
     queryKey: ['source', sourceId],
     queryFn: async () => {
       const sources = await api.get(`/sources/project/${projectId}`).then(r => r.data);
@@ -99,6 +100,16 @@ export function PipelineProgress({ projectId, sourceId, onClose }: Props) {
   const avgMs = doneCount > 0 ? elapsedSinceRender / doneCount : 0;
   const etaMs = avgMs > 0 && sceneCount > doneCount ? avgMs * (sceneCount - doneCount) : 0;
   const etaStr = etaMs > 0 ? (etaMs < 60000 ? `~${Math.round(etaMs / 1000)}s` : `~${Math.floor(etaMs / 60000)}m ${Math.round((etaMs % 60000) / 1000)}s`) : '';
+
+  // Auto-dismiss when source deleted from DB (n8n error → backend deletes record)
+  // sourceResolved=true means query has returned at least once; source=null means gone from DB
+  useEffect(() => {
+    if (sourceResolved && source === null) {
+      try { localStorage.removeItem(`vca:active-source:${projectId}`); } catch {}
+      toast.error('Tạo video thất bại', { description: 'Pipeline lỗi — kiểm tra n8n hoặc cấu hình API key.' });
+      onClose();
+    }
+  }, [sourceResolved, source, projectId, onClose]);
 
   useEffect(() => {
     if ((isDone || isFailed) && !notifiedTerminal) {
