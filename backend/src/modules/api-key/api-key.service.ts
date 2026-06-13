@@ -171,6 +171,32 @@ export class ApiKeyService {
    * via pickActive) + registry config (URL/auth/format). SCRIPT + IMAGE only —
    * VIDEO (veo3) is SDK-based and not in the registry.
    */
+  /**
+   * Build a provider config for keyless providers (gemini_session) where auth is
+   * a browser session in the python_worker, not an API key. n8n calls the worker
+   * URL from the registry; authValue is empty.
+   */
+  resolveKeyless(
+    capability: Capability,
+    provider: string,
+    model?: string,
+  ): ResolvedProvider {
+    const entry = getProviderConfig(provider, capability);
+    const resolvedModel = model || entry.models[0];
+    return {
+      id: '',
+      provider,
+      model: resolvedModel,
+      url: resolveProviderUrl(entry, resolvedModel),
+      authMode: entry.auth.mode,
+      authName: entry.auth.name,
+      authValue: '',
+      extraHeaders: entry.extraHeaders,
+      requestFormat: entry.requestFormat,
+      responseExtract: entry.responseExtract,
+    };
+  }
+
   async resolveProvider(
     capability: Capability,
     provider?: string,

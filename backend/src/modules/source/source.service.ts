@@ -36,6 +36,13 @@ function pickVideoConfig(dto: VideoConfig): VideoConfig {
   };
 }
 
+function normalizeImageModel(provider: string, model: string): string {
+  if (provider === 'google' && model === 'gemini-2.5-flash') {
+    return 'gemini-2.5-flash-image';
+  }
+  return model;
+}
+
 @Injectable()
 export class SourceService {
   private readonly logger = new Logger(SourceService.name);
@@ -127,22 +134,46 @@ export class SourceService {
       },
     });
 
-    // Trigger n8n workflow 02 — fire-and-forget. Workflow may run synchronously (Respond Last Node)
-    // and take 10-30s, so use a generous timeout. Optimistically set status to 'sent_to_n8n' since
+    // Trigger n8n workflow 02 — fire-and-forget. Image generation can take several
+    // minutes across multiple scenes, so allow the synchronous workflow enough time.
     // BE call is async and we don't want to block the user response.
     const n8nBase = this.config.get('N8N_BASE_URL', 'http://n8n:5678');
     await this.prisma.apiSource.update({ where: { id: source.id }, data: { status: 'sent_to_n8n' } });
 
-    // Free providers don't need an API key — pass provider/model directly.
-    const FREE_PROVIDERS = new Set(['pexels', 'local', 'edge-tts', 'gemini_session']);
-    const resolveOrFree = async (cap: Capability, provider: string, model: string) => {
-      if (FREE_PROVIDERS.has(provider)) return { provider, model, key: null };
+    // Resolve a capability's provider config for the n8n payload:
+    //  - gemini_session: keyless (cookies live in python_worker), but n8n DOES call
+    //    the worker for it → resolve a registry URL via resolveKeyless.
+    //  - local / edge-tts: handled entirely inside the worker, no n8n HTTP call → stub.
+    //  - everything else: needs an active API key.
+    const WORKER_STUB = new Set(['local', 'edge-tts']);
+    const resolveFor = async (cap: Capability, provider: string, model: string) => {
+      if (provider === 'gemini_session') return this.apiKeyService.resolveKeyless(cap, provider, model);
+      if (WORKER_STUB.has(provider)) return { provider, model, key: null };
       return this.safeResolve(cap, provider, model);
     };
-    const [scriptProvider, imageProvider] = await Promise.all([
-      resolveOrFree('SCRIPT', project?.scriptProvider ?? 'google', project?.scriptModel ?? 'gemini-2.5-flash'),
-      resolveOrFree('IMAGE', project?.imageProvider ?? 'google', project?.imageModel ?? 'gemini-2.5-flash-image-preview'),
-    ]);
+    const imageProviderName = project?.imageProvider ?? 'google';
+    const imageModel = normalizeImageModel(
+      imageProviderName,
+      project?.imageModel ?? 'gemini-2.5-flash-image',
+    );
+    const scriptProvider = await resolveFor(
+      'SCRIPT',
+      project?.scriptProvider ?? 'google',
+      project?.scriptModel ?? 'gemini-2.5-flash',
+    );
+    let imageProvider: ResolvedProvider | { provider: string; model: string; key: null } | null;
+    try {
+      imageProvider = await resolveFor('IMAGE', imageProviderName, imageModel);
+    } catch (e: any) {
+      await this.prisma.apiSource.delete({ where: { id: source.id } }).catch(() => {});
+      throw new BadRequestException(`Cấu hình IMAGE không hợp lệ: ${e?.message || 'unknown error'}`);
+    }
+    if (!imageProvider) {
+      await this.prisma.apiSource.delete({ where: { id: source.id } }).catch(() => {});
+      throw new BadRequestException(
+        `Không có IMAGE key đang hoạt động cho provider "${imageProviderName}".`,
+      );
+    }
     const providers = {
       script: scriptProvider,
       image: imageProvider,
@@ -178,7 +209,7 @@ export class SourceService {
         project_description: project?.description,
         script_base_prompt: project?.scriptBasePrompt,
         providers,
-      }, { timeout: 60000 }),
+      }, { timeout: 600000 }),
     ).catch(() => {
       this.prisma.apiSource.delete({ where: { id: source.id } }).catch(() => {});
     });

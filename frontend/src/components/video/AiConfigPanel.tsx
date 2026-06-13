@@ -7,7 +7,7 @@ import { toast } from 'sonner';
 // Suggested models per provider — user can type any model not in this list.
 // Updated for 2026: real model names, no fake/outdated ones.
 const SUGGESTED_MODELS: Record<string, string[]> = {
-  openai:    ['gpt-4o', 'gpt-4o-mini', 'gpt-4.1', 'gpt-5', 'dall-e-3', 'gpt-image-1', 'tts-1', 'tts-1-hd'],
+  openai:    ['gpt-4o-mini', 'gpt-4o', 'gpt-4.1', 'gpt-5', 'gpt-image-2', 'gpt-image-1', 'tts-1', 'tts-1-hd'],
   anthropic: ['claude-opus-4-7', 'claude-sonnet-4-6', 'claude-haiku-4-5-20251001'],
   google:    ['gemini-2.5-flash', 'gemini-2.5-pro', 'imagen-4-fast', 'imagen-4-ultra', 'veo-3.0', 'veo-2.0'],
   gemini:    ['gemini-2.5-flash', 'gemini-2.5-pro'],
@@ -20,6 +20,26 @@ const SUGGESTED_MODELS: Record<string, string[]> = {
   'edge-tts':['vi-VN-NamMinhNeural', 'vi-VN-HoaiMyNeural', 'en-US-AriaNeural', 'en-US-GuyNeural'],
 };
 
+const TASK_MODEL_OVERRIDES: Record<string, Record<string, string[]>> = {
+  script: {
+    google: ['gemini-2.5-flash', 'gemini-2.5-pro'],
+    openai: ['gpt-4o-mini', 'gpt-4o', 'gpt-4.1', 'gpt-5'],
+  },
+  refine: {
+    google: ['gemini-2.5-flash', 'gemini-2.5-pro'],
+    openai: ['gpt-4o-mini', 'gpt-4o', 'gpt-4.1', 'gpt-5'],
+  },
+  image: {
+    google: ['gemini-3.1-flash-image', 'gemini-2.5-flash-image'],
+    openai: ['gpt-image-2', 'gpt-image-1'],
+    pexels: ['pexels-stock'],
+  },
+  video: {
+    google: ['veo-3.0', 'veo-2.0'],
+    gemini_session: ['gemini-veo'],
+  },
+};
+
 // Friendly provider names for the dropdown (raw key shown if not listed).
 const PROVIDER_LABELS: Record<string, string> = {
   gemini_session: 'Tài khoản Gemini (Pro/Ultra)',
@@ -28,6 +48,8 @@ const PROVIDER_LABELS: Record<string, string> = {
 // Brief tagline shown next to model when user picks it
 const MODEL_NOTES: Record<string, string> = {
   'gemini-2.5-flash':  'Free, nhanh — OK cho video ngắn',
+  'gemini-2.5-flash-image': 'Gemini native image generation',
+  'gemini-3.1-flash-image': 'Nano Banana 2 — nhanh, tối ưu sinh ảnh',
   'gemini-2.5-pro':    'Free, chất lượng cao hơn',
   'claude-opus-4-7':   '~$15/1M tok — best cho tiếng Việt',
   'claude-sonnet-4-6': '~$3/1M tok — cân bằng',
@@ -35,9 +57,9 @@ const MODEL_NOTES: Record<string, string> = {
   'gpt-4o-mini':       '~$0.15/1M tok — rẻ',
   'imagen-4-fast':     '$0.04/ảnh — cần Google paid',
   'imagen-4-ultra':    '$0.10/ảnh — 4K',
-  'dall-e-3':          '$0.04/ảnh — style hoạt hoạ',
+  'gpt-image-2':       'OpenAI image generation mới nhất',
   'gpt-image-1':       '$0.04/ảnh',
-  'pexels-stock':      'Free — ảnh stock có sẵn',
+  'pexels-stock':      'Free API — cần Pexels API key',
   'veo-3.0':           '$0.50/giây — best animation, có audio',
   'veo-2.0':           '$0.30/giây',
   'gen-3-alpha':       '$0.05/giây — creative motion',
@@ -71,7 +93,7 @@ const TASKS = [
 ];
 
 // Free providers that work without an API key
-const FREE_PROVIDERS = ['local', 'pexels', 'edge-tts'];
+const FREE_PROVIDERS = ['local', 'edge-tts'];
 
 type Props = {
   projectId: string;
@@ -91,12 +113,17 @@ export function AiConfigPanel({ projectId, config, onChange }: Props) {
 
   const set = (patch: any) => { onChange(patch); save.mutate(patch); };
 
+  // gemini_session is stored as one VIDEO row but the worker proxy can also drive
+  // SCRIPT + IMAGE via the same session, so offer it for those tasks when connected.
+  const sessionConnected = (allKeys as any[]).some(k => k.provider === 'gemini_session' && k.isActive);
+
   // Providers with at least 1 active key for a given capability + free providers always available
   const availableProviders = (capability: string): string[] => {
     const fromKeys = (allKeys as any[])
       .filter(k => k.type === capability && k.isActive)
       .map(k => k.provider as string);
-    return [...new Set([...FREE_PROVIDERS.filter(p => SUGGESTED_MODELS[p]?.length), ...fromKeys])];
+    const session = sessionConnected && (capability === 'SCRIPT' || capability === 'IMAGE') ? ['gemini_session'] : [];
+    return [...new Set([...FREE_PROVIDERS.filter(p => SUGGESTED_MODELS[p]?.length), ...session, ...fromKeys])];
   };
 
   return (
@@ -114,7 +141,9 @@ export function AiConfigPanel({ projectId, config, onChange }: Props) {
         const providers = availableProviders(capability);
         const currentProvider = config[providerField] || '';
         const currentModel   = config[modelField]   || '';
-        const suggested = SUGGESTED_MODELS[currentProvider] || [];
+        const suggested = TASK_MODEL_OVERRIDES[key]?.[currentProvider]
+          || SUGGESTED_MODELS[currentProvider]
+          || [];
         const listId = `models-${key}`;
         const note = MODEL_NOTES[currentModel];
 
@@ -130,7 +159,9 @@ export function AiConfigPanel({ projectId, config, onChange }: Props) {
                   // Auto-pick first suggested model if changing provider
                   set({
                     [providerField]: newProv,
-                    [modelField]: SUGGESTED_MODELS[newProv]?.[0] || '',
+                    [modelField]: TASK_MODEL_OVERRIDES[key]?.[newProv]?.[0]
+                      || SUGGESTED_MODELS[newProv]?.[0]
+                      || '',
                   });
                 }}
                 className="w-full bg-zinc-800 text-sm rounded-lg px-3 py-2 border border-zinc-700 outline-none focus:border-violet-500"

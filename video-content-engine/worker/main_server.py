@@ -23,11 +23,36 @@ SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 MAX_PARALLEL_SCENES = int(os.getenv("MAX_PARALLEL_SCENES", "5"))
 
-_VIDEO_COSTS = {"veo3": 0.59, "runway": 0.59, "slideshow": 0.04, "local": 0.04}
+_VIDEO_COSTS = {
+    "veo3": 0.59,
+    "runway": 0.59,
+    "slideshow": 0.04,
+    "local": 0.04,
+    "gemini_session": 0.0,
+}
 
 def _cost_per_scene(provider: str = None, model: str = None) -> float:
     p = (provider or os.getenv("VIDEO_PROVIDER", "slideshow")).lower()
     return _VIDEO_COSTS.get(p, 0.65)
+
+
+def _all_scenes_failed_error(manifest: "RenderManifest", completed_scenes: list) -> str:
+    provider = (manifest.video_provider or os.getenv("VIDEO_PROVIDER", "slideshow")).lower()
+    details = []
+    for scene_order, _, results, _ in sorted(completed_scenes, key=lambda entry: entry[0]):
+        missing = []
+        if not results.get("video_path"):
+            missing.append("video")
+        if not results.get("image_path"):
+            missing.append("image")
+        if not results.get("audio_path"):
+            missing.append("voiceover")
+        details.append(f"scene {scene_order + 1}: missing {', '.join(missing) or 'unknown asset'}")
+    detail_text = "; ".join(details) if details else "no scene results returned"
+    return (
+        f"All {len(manifest.scenes)} scenes failed using video provider '{provider}'. "
+        f"{detail_text}."
+    )
 
 app = FastAPI(title="Content Engine Worker", version="3.0.0")
 
@@ -225,7 +250,7 @@ def process_video_pipeline(manifest: RenderManifest):
             db.commit()
 
         # 2. Budget pre-check
-        scene_cost = _cost_per_scene()
+        scene_cost = _cost_per_scene(manifest.video_provider)
         total_estimated = len(manifest.scenes) * scene_cost
         budget_limit = float(os.getenv("BUDGET_LIMIT_PER_VIDEO", "100"))
         if total_estimated > budget_limit:
@@ -324,10 +349,7 @@ def process_video_pipeline(manifest: RenderManifest):
         # 5b. Fail-fast nếu 0 scenes thành công (tránh mark "uploaded" giả)
         completed_count = sum(1 for _, _, _, status in completed_scenes if status == "completed")
         if completed_count == 0:
-            raise RuntimeError(
-                f"All {len(manifest.scenes)} scenes failed. "
-                f"Check API keys and provider configs (Veo3/Runway video gen + ElevenLabs voice)."
-            )
+            raise RuntimeError(_all_scenes_failed_error(manifest, completed_scenes))
         if completed_count < len(manifest.scenes):
             logger.warning(f"[{video_id}] Only {completed_count}/{len(manifest.scenes)} scenes completed — continuing with partial video")
 
@@ -496,6 +518,34 @@ def get_status(video_id: str):
     if not row:
         return {"error": "not_found"}
     return {"video_id": video_id, "status": row[0], "total_cost_usd": float(row[1] or 0)}
+
+
+@app.post("/api/v1/gemini-session/chat")
+async def gemini_session_chat(body: Dict[str, Any]):
+    """Script gen via Gemini web session. Accepts OpenAI chat body, returns OpenAI shape."""
+    from fastapi import HTTPException
+    from gemini_session_http import session_chat
+    messages = body.get("messages", [])
+    prompt = "\n\n".join(m.get("content", "") for m in messages if m.get("content"))
+    try:
+        text_out = await session_chat(prompt)
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"gemini_session: {e} — cookie có thể đã hết hạn, chạy lại gemini_login.py")
+    return {"choices": [{"message": {"content": text_out}}]}
+
+
+@app.post("/api/v1/gemini-session/image")
+async def gemini_session_image(body: Dict[str, Any]):
+    """Image gen via Gemini web session. Accepts Gemini generateContent body, returns Gemini shape."""
+    from fastapi import HTTPException
+    from gemini_session_http import session_image
+    parts = (body.get("contents") or [{}])[0].get("parts", [])
+    prompt = "\n".join(p.get("text", "") for p in parts if p.get("text"))
+    try:
+        mime, b64 = await session_image(prompt)
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"gemini_session: {e} — cookie có thể đã hết hạn, chạy lại gemini_login.py")
+    return {"candidates": [{"content": {"parts": [{"inlineData": {"mimeType": mime, "data": b64}}]}}]}
 
 
 @app.get("/health")

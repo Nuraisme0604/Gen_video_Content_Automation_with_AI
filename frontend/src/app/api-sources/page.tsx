@@ -26,8 +26,8 @@ const PROVIDER_INFO: Record<string, {
     displayName: 'OpenAI',
     description: 'GPT · DALL-E · TTS',
     modelsByCapability: {
-      SCRIPT: ['gpt-4o', 'gpt-4o-mini'],
-      IMAGE:  ['dall-e-3'],
+      SCRIPT: ['gpt-4o-mini', 'gpt-4o', 'gpt-4.1', 'gpt-5'],
+      IMAGE:  ['gpt-image-2', 'gpt-image-1'],
       VOICE:  ['tts-1 (Onyx, Alloy...)'],
     },
   },
@@ -63,7 +63,7 @@ const PROVIDER_INFO: Record<string, {
   },
   pexels: {
     displayName: 'Pexels',
-    description: 'Stock ảnh + video (Free)',
+    description: 'Stock ảnh + video (Free API, cần key)',
     modelsByCapability: {
       IMAGE: ['pexels-stock'],
       VIDEO: ['pexels-video'],

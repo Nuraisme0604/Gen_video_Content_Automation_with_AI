@@ -65,13 +65,14 @@ def generate_video_gemini_session(
         await client.init(timeout=30, auto_close=False)
         try:
             response = await client.generate_content(prompt)
-            if not response.videos:
-                logger.error("gemini_session: response had no videos (account may lack video access)")
+            videos = getattr(response, "videos", None)
+            if not videos:
+                logger.error("gemini_session: account không trả về video — tài khoản Gemini này chưa có quyền Veo qua web session. Dùng VIDEO_PROVIDER=local (slideshow) hoặc veo3 (API có billing).")
                 return False
             dest = Path(dest_path)
             dest.parent.mkdir(parents=True, exist_ok=True)
             # save() polls until the video finishes rendering, then writes the file
-            await response.videos[0].save(path=str(dest.parent), filename=dest.name, verbose=False)
+            await videos[0].save(path=str(dest.parent), filename=dest.name, verbose=False)
             if dest.exists():
                 logger.info(f"gemini_session video saved: {dest_path}")
                 return True

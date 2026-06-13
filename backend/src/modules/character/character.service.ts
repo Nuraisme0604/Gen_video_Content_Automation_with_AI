@@ -89,15 +89,31 @@ export class CharacterService {
     }
 
     const prompt = `Character reference sheet, front view, neutral background, consistent design. ${character.description}. No text, no watermark, no logo.`;
-    const url = `${resolved.url}?${resolved.authName}=${resolved.authValue}`;
+    const url = resolved.authMode === 'query'
+      ? `${resolved.url}?${resolved.authName}=${encodeURIComponent(resolved.authValue)}`
+      : resolved.url;
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+      ...(resolved.extraHeaders || {}),
+    };
+    if (resolved.authMode === 'header') {
+      headers[resolved.authName] = resolved.authValue;
+    }
+    const requestBody = resolved.requestFormat === 'openai_image'
+      ? {
+          model: resolved.model,
+          prompt,
+          size: '1024x1024',
+        }
+      : {
+          contents: [{ parts: [{ text: prompt }] }],
+          generationConfig: { responseModalities: ['TEXT', 'IMAGE'] },
+        };
 
     const res = await fetch(url, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        contents: [{ parts: [{ text: prompt }] }],
-        generationConfig: { responseModalities: ['TEXT', 'IMAGE'] },
-      }),
+      headers,
+      body: JSON.stringify(requestBody),
     });
 
     if (!res.ok) {
@@ -110,15 +126,16 @@ export class CharacterService {
     const json: any = await res.json();
     const parts: any[] = json?.candidates?.[0]?.content?.parts ?? [];
     const imagePart = parts.find((p: any) => p?.inlineData?.data);
-    if (!imagePart) {
+    const openAiBase64 = json?.data?.[0]?.b64_json;
+    if (!imagePart && !openAiBase64) {
       const textParts = parts.filter((p: any) => p?.text).map((p: any) => p.text).join(' ');
       throw new InternalServerErrorException(
         `API không trả ảnh (có thể bị content filter). Response: ${textParts.slice(0, 300)}`,
       );
     }
 
-    const imageBuffer = Buffer.from(imagePart.inlineData.data, 'base64');
-    const contentType: string = imagePart.inlineData.mimeType ?? 'image/png';
+    const imageBuffer = Buffer.from(openAiBase64 || imagePart.inlineData.data, 'base64');
+    const contentType: string = imagePart?.inlineData?.mimeType ?? 'image/png';
     const ext = contentType.split('/')[1] ?? 'png';
     const key = `characters/${id}.${ext}`;
 
