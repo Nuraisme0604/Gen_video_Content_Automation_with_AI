@@ -1,7 +1,7 @@
 'use client';
 import { useEffect, useRef, useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
-import { getVideo, api, getVideoClips } from '@/lib/api';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { getVideo, api, getVideoClips, getRenderEvents } from '@/lib/api';
 import { CheckCircle2, Loader2, AlertCircle, ExternalLink } from 'lucide-react';
 import Link from 'next/link';
 import { cn } from '@/lib/utils';
@@ -18,9 +18,18 @@ const STAGES = [
   { key: 'rendered',    label: 'Hoàn thành' },
 ];
 
+const STAGE_LABELS: Record<string, string> = {
+  script: 'Đang sinh kịch bản',
+  images: 'Đang tải ảnh / lồng tiếng',
+  voice: 'Đang lồng tiếng',
+  assemble: 'Đang ghép video',
+  done: 'Hoàn thành',
+};
+
 type Props = { projectId: string; sourceId: string; onClose: () => void };
 
 export function PipelineProgress({ projectId, sourceId, onClose }: Props) {
+  const qc = useQueryClient();
   const [elapsed, setElapsed] = useState(0);
   const [notifiedTerminal, setNotifiedTerminal] = useState(false);
   const [sceneStates, setSceneStates] = useState<Record<number, SceneStatus>>({});
@@ -45,11 +54,24 @@ export function PipelineProgress({ projectId, sourceId, onClose }: Props) {
       setSceneStates(prev => ({ ...prev, [data.sceneIndex]: data.status as SceneStatus }));
     };
     socket.on('scene-progress', handler);
+    const eventHandler = (data: { videoId: string }) => {
+      if (data.videoId !== sourceId) return;
+      qc.invalidateQueries({ queryKey: ['render-events', sourceId] });
+    };
+    socket.on('render-event', eventHandler);
     return () => {
       unsubscribeFromVideo(sourceId);
       socket.off('scene-progress', handler);
+      socket.off('render-event', eventHandler);
     };
-  }, [sourceId]);
+  }, [sourceId, qc]);
+
+  // Nhật ký lỗi/bước (Phase 3) — REST poll, invalidated on socket push above
+  const { data: renderEvents = [] } = useQuery({
+    queryKey: ['render-events', sourceId],
+    queryFn: () => getRenderEvents(sourceId).catch(() => []),
+    refetchInterval: 6000,
+  });
 
   // Poll source status
   const { data: source, isSuccess: sourceResolved } = useQuery({
@@ -76,7 +98,17 @@ export function PipelineProgress({ projectId, sourceId, onClose }: Props) {
     staleTime: 30000,
   });
   const clipMap: Record<number, string | null> = {};
-  (clips || []).forEach((c: any) => { clipMap[c.sceneIndex] = c.clipUrl; });
+  const imageProviderMap: Record<number, string | null> = {};
+  (clips || []).forEach((c: any) => {
+    clipMap[c.sceneIndex] = c.clipUrl;
+    imageProviderMap[c.sceneIndex] = c.imageProvider ?? null;
+  });
+  const IMAGE_PROVIDER_BADGE: Record<string, string> = {
+    google: 'Ảnh AI',
+    openai: 'Ảnh AI',
+    pexels: 'Ảnh Stock',
+    picsum: 'Ảnh tạm',
+  };
 
   // Determine current stage
   let currentStage = source?.status || 'queued';
@@ -132,7 +164,7 @@ export function PipelineProgress({ projectId, sourceId, onClose }: Props) {
               : isDone
               ? <CheckCircle2 size={16} className="text-emerald-400" />
               : <Loader2 size={16} className="text-violet-400 animate-spin" />}
-            {isFailed ? 'Pipeline thất bại' : isDone ? 'Hoàn thành!' : 'Đang xử lý...'}
+            {isFailed ? 'Pipeline thất bại' : isDone ? 'Hoàn thành!' : (video?.stage && STAGE_LABELS[video.stage]) || 'Đang xử lý...'}
           </h3>
           <p className="text-xs text-zinc-500 mt-1">
             ⏱ {elapsed}s{etaStr && !isDone && !isFailed ? ` · ${etaStr} còn lại` : ''} · ID: <span className="font-mono">{sourceId.slice(0, 12)}</span>
@@ -204,6 +236,26 @@ export function PipelineProgress({ projectId, sourceId, onClose }: Props) {
         </div>
       )}
 
+      {/* Nhật ký (Phase 3) — timeline các bước/lỗi từ worker + n8n */}
+      {renderEvents.length > 0 && (
+        <div className="mt-3 space-y-1 max-h-40 overflow-y-auto">
+          <p className="text-[11px] text-zinc-500 font-medium">Nhật ký</p>
+          {renderEvents.map((ev: any) => (
+            <div key={ev.id} className={cn(
+              'text-[11px] rounded px-2 py-1 flex items-start gap-1.5',
+              ev.level === 'error' ? 'bg-rose-500/10 text-rose-400' :
+              ev.level === 'warn'  ? 'bg-amber-500/10 text-amber-400' :
+                                     'bg-zinc-800/60 text-zinc-400',
+            )}>
+              <span className="font-mono text-zinc-600 shrink-0">
+                {new Date(ev.createdAt).toLocaleTimeString('vi-VN')}
+              </span>
+              <span>{ev.message}</span>
+            </div>
+          ))}
+        </div>
+      )}
+
       {/* Action when done */}
       {isDone && video && (
         <Link href={`/projects/${projectId}/videos/${video.id}`}
@@ -247,7 +299,19 @@ export function PipelineProgress({ projectId, sourceId, onClose }: Props) {
             onClick={e => e.stopPropagation()}
           >
             <div className="flex items-center justify-between mb-3">
-              <span className="text-sm font-medium text-zinc-200">Scene {selectedScene + 1}</span>
+              <span className="text-sm font-medium text-zinc-200 flex items-center gap-2">
+                Scene {selectedScene + 1}
+                {imageProviderMap[selectedScene] && (
+                  <span className={cn(
+                    'text-[10px] px-1.5 py-0.5 rounded-full',
+                    imageProviderMap[selectedScene] === 'picsum' ? 'bg-amber-500/20 text-amber-400' :
+                    imageProviderMap[selectedScene] === 'pexels' ? 'bg-sky-500/20 text-sky-400' :
+                                                                    'bg-violet-500/20 text-violet-400',
+                  )}>
+                    {IMAGE_PROVIDER_BADGE[imageProviderMap[selectedScene]!] || imageProviderMap[selectedScene]}
+                  </span>
+                )}
+              </span>
               <button onClick={() => setSelectedScene(null)} className="text-zinc-400 hover:text-white text-lg leading-none">×</button>
             </div>
             {clipMap[selectedScene] ? (

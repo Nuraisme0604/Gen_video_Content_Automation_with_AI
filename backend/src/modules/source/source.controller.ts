@@ -3,6 +3,7 @@ import { ApiTags } from '@nestjs/swagger';
 import { SourceService } from './source.service';
 import { CreateYoutubeSourceDto } from './dto/create-youtube-source.dto';
 import { CreateManualSourceDto } from './dto/create-manual-source.dto';
+import { CreateBatchDto } from './dto/create-batch-dto';
 
 @ApiTags('sources')
 @Controller('sources')
@@ -14,6 +15,9 @@ export class SourceController {
 
   @Post('manual')
   createManual(@Body() dto: CreateManualSourceDto) { return this.svc.createManual(dto); }
+
+  @Post('batch')
+  createBatch(@Body() dto: CreateBatchDto) { return this.svc.createBatch(dto); }
 
   @Get('estimate-cost')
   async estimateCost(

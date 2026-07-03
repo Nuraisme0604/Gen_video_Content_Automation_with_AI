@@ -110,7 +110,7 @@ const validateInput = [{
     scene_seconds: 8,
     providers: {
       image: { provider: 'google' },
-      video: { provider: 'gemini_session', model: 'gemini-veo' },
+      video: { provider: 'veo3', model: 'veo-3.1' },
     },
   },
 }];
@@ -124,7 +124,7 @@ const manifest = manifestOutput[0].json;
 assert.equal(manifest.scenes.length, 4);
 assert.equal(manifest.scenes[0].narration_text, 'Narration 1');
 assert.equal(manifest.scenes[2].image_url, 'data:image/png;base64,image-3');
-assert.equal(manifest.video_provider, 'gemini_session');
+assert.equal(manifest.video_provider, 'veo3');
 assert.ok(!Object.hasOwn(manifest.scenes[0], 'narration_excerpt'));
 
 const failedGoogleItems = [...googleImageItems];

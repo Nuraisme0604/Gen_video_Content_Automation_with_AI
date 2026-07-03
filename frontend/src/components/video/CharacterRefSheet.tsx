@@ -1,9 +1,10 @@
 'use client';
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { getCharacters, createCharacter, updateCharacter, deleteCharacter, generateCharacterImage } from '@/lib/api';
+import { getCharacters, createCharacter, updateCharacter, deleteCharacter, generateCharacterImage, getProject, updateProject } from '@/lib/api';
 import { toast } from 'sonner';
-import { Plus, Trash2, Pencil, Check, X, Sparkles, Loader2 } from 'lucide-react';
+import { Plus, Trash2, Pencil, Check, X, Sparkles, Loader2, Star } from 'lucide-react';
+import { cn } from '@/lib/utils';
 
 type Props = { projectId: string };
 
@@ -14,6 +15,16 @@ export function CharacterRefSheet({ projectId }: Props) {
   const { data: chars = [] } = useQuery({
     queryKey: ['characters', projectId],
     queryFn: () => getCharacters(projectId),
+  });
+  const { data: project } = useQuery({
+    queryKey: ['project', projectId],
+    queryFn: () => getProject(projectId),
+  });
+
+  const setDefault = useMutation({
+    mutationFn: (characterId: string | null) => updateProject(projectId, { defaultCharacterId: characterId }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['project', projectId] }); toast.success('Đã đặt nhân vật mặc định cho project'); },
+    onError: (e: any) => toast.error('Đặt mặc định thất bại', { description: errMsg(e) }),
   });
 
   const [adding, setAdding] = useState(false);
@@ -76,12 +87,28 @@ export function CharacterRefSheet({ projectId }: Props) {
             </div>
           ) : (
             <div className="flex-1 min-w-0">
-              <div className="text-sm font-medium">{c.name}</div>
+              <div className="text-sm font-medium flex items-center gap-1.5">
+                {c.name}
+                {project?.defaultCharacterId === c.id && (
+                  <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-amber-500/20 text-amber-400">Mặc định</span>
+                )}
+              </div>
               <div className="text-xs text-zinc-500 font-mono mt-0.5 line-clamp-2">{c.description}</div>
             </div>
           )}
           {editing !== c.id && (
             <div className="flex gap-1 shrink-0">
+              <button
+                onClick={() => setDefault.mutate(project?.defaultCharacterId === c.id ? null : c.id)}
+                disabled={setDefault.isPending}
+                className={cn(
+                  'p-1.5 rounded hover:bg-zinc-800 disabled:opacity-50',
+                  project?.defaultCharacterId === c.id ? 'text-amber-400' : 'text-zinc-500 hover:text-amber-300',
+                )}
+                title={project?.defaultCharacterId === c.id ? 'Bỏ mặc định' : 'Đặt làm nhân vật mặc định cho project'}
+              >
+                <Star size={14} fill={project?.defaultCharacterId === c.id ? 'currentColor' : 'none'} />
+              </button>
               <button
                 onClick={() => gen.mutate(c.id)}
                 disabled={gen.isPending && gen.variables === c.id}

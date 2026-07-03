@@ -7,6 +7,7 @@ import { createHmac, timingSafeEqual } from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import { JobsGateway } from '../gateways/jobs.gateway';
 import { CharacterService } from '../modules/character/character.service';
+import { RenderEventService } from '../modules/render-event/render-event.service';
 
 @ApiTags('webhooks')
 @Controller('webhooks/n8n')
@@ -18,6 +19,7 @@ export class N8nWebhookController {
     private prisma: PrismaService,
     private gateway: JobsGateway,
     private characters: CharacterService,
+    private renderEvents: RenderEventService,
     @InjectQueue('render') private renderQueue: Queue,
   ) {}
 
@@ -49,14 +51,15 @@ export class N8nWebhookController {
 
     const { episode_id, project_id, manifest } = body;
 
-    // Honor the per-project video provider the user picked in the UI so it actually
-    // drives the worker (worker falls back to env VIDEO_PROVIDER if this is absent).
+    // Honor per-project settings the user picked in the UI so they actually drive
+    // the worker (worker falls back to env if these are absent).
     if (manifest && project_id) {
       const proj = await this.prisma.project.findUnique({
         where: { id: project_id },
-        select: { videoProvider: true },
+        select: { videoProvider: true, burnSubtitles: true },
       });
       if (proj?.videoProvider) manifest.video_provider = proj.videoProvider;
+      if (proj) manifest.burn_subtitles = proj.burnSubtitles;
     }
 
     // Create or update video record
@@ -122,14 +125,22 @@ export class N8nWebhookController {
 
   /** n8n calls this when QA fails or script pipeline errors. */
   @Post('pipeline-error')
-  async pipelineError(@Body() body: { episode_id: string; error: string }) {
+  async pipelineError(@Body() body: { episode_id: string; error: string; node?: string }) {
+    const message = body.node ? `[${body.node}] ${body.error}` : body.error;
     if (body.episode_id) {
       await this.prisma.video.updateMany({
         where: { id: body.episode_id },
-        data: { status: 'failed', errorMsg: body.error },
+        data: { status: 'failed', errorMsg: message, stage: 'script' },
       });
+      await this.renderEvents.create({
+        videoId: body.episode_id,
+        level: 'error',
+        stage: 'script',
+        message,
+      });
+      this.gateway.emitRenderEvent(body.episode_id, { level: 'error', stage: 'script', message });
     }
-    this.logger.error(`Pipeline error for ${body.episode_id}: ${body.error}`);
+    this.logger.error(`Pipeline error for ${body.episode_id}: ${message}`);
     return { ok: true };
   }
 }

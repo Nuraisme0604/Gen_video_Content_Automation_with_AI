@@ -17,9 +17,20 @@ engine = create_engine(DATABASE_URL, pool_pre_ping=True)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 
-def assemble_master_video(video_id: str):
+def _ensure_local(path_or_key):
+    """Scene videoKey/audioKey lưu trong DB là S3 key. Nếu file local không còn,
+    tải từ MinIO về temp để ghép master."""
+    if not path_or_key or os.path.exists(path_or_key):
+        return path_or_key
+    from storage import download_file
+    local = os.path.join("/assets_temp", "_assembly", os.path.basename(path_or_key))
+    return local if download_file(path_or_key, local) else None
+
+
+def assemble_master_video(video_id: str, disable_bgm: bool | None = None):
     """
     Ghép các video clip lại, mix audio với nhạc nền và áp dụng Audio Ducking.
+    disable_bgm: None = dùng env DISABLE_BGM; True/False = ưu tiên theo Project.disableBgm.
     """
     logger.info(f"[Video {video_id}] Bắt đầu assemble video...")
 
@@ -42,6 +53,10 @@ def assemble_master_video(video_id: str):
     # 2. Xử lý từng scene — MIX Veo3 native audio + ElevenLabs voiceover (không replace)
     for scene in scenes:
         scene_id, scene_idx, v_path, a_path = scene
+
+        # videoKey/audioKey trong DB là S3 key — tải về local nếu clip đã bị dọn.
+        v_path = _ensure_local(v_path)
+        a_path = _ensure_local(a_path)
 
         if not v_path or not os.path.exists(v_path):
             logger.warning(f"[Scene {scene_id}] Video path không tồn tại: {v_path}")
@@ -88,8 +103,11 @@ def assemble_master_video(video_id: str):
     if not os.path.exists(bgm_path):
         bgm_path = os.path.join(ASSETS_DIR, "bgm", "calm_music.mp3")
     bgm_volume = float(os.getenv("BGM_VOLUME", "0.15"))  # Default 15% — an toàn cho narration
+    bgm_disabled = disable_bgm if disable_bgm is not None else os.getenv("DISABLE_BGM", "false").lower() in ("true", "1", "yes")
 
-    if os.path.exists(bgm_path):
+    if bgm_disabled:
+        logger.info(f"[Video {video_id}] DISABLE_BGM=true → bỏ nhạc nền, chỉ giữ tiếng.")
+    elif os.path.exists(bgm_path):
         bgm_clip = AudioFileClip(bgm_path)
         # Loop với crossfade nếu BGM ngắn hơn video (tránh hard cut khó chịu)
         if bgm_clip.duration < master_video.duration:
@@ -182,7 +200,7 @@ def generate_subtitles(video_id: str):
 
     with SessionLocal() as db:
         scenes = db.execute(
-            text('SELECT "sceneIndex" AS scene_index, "voiceoverText" AS voiceover_text FROM scenes WHERE "videoId" = :id AND status = \'completed\' ORDER BY "sceneIndex" ASC'),
+            text('SELECT "voiceoverText" AS voiceover_text, "durationSec" AS dur FROM scenes WHERE "videoId" = :id AND status = \'completed\' ORDER BY "sceneIndex" ASC'),
             {"id": video_id}
         ).fetchall()
 
@@ -190,20 +208,24 @@ def generate_subtitles(video_id: str):
         logger.warning(f"[Video {video_id}] Không có dữ liệu scenes để tạo SRT.")
         return
 
-    scene_duration = float(os.getenv("SCENE_VIDEO_SECONDS", "8"))
+    fallback = float(os.getenv("SCENE_VIDEO_SECONDS", "8"))
     output_dir = os.path.join(ASSETS_DIR, "final_output")
     os.makedirs(output_dir, exist_ok=True)
     srt_path = os.path.join(output_dir, f"subtitles_{video_id}.srt")
 
+    cursor = 0.0
+    idx = 0
     with open(srt_path, "w", encoding="utf-8") as f:
-        for i, (scene_idx, text_content) in enumerate(scenes):
+        for text_content, dur in scenes:
             if not text_content:
                 continue
-            start_sec = i * scene_duration
-            end_sec = start_sec + scene_duration
-            start_ts = _format_srt_time(start_sec)
-            end_ts = _format_srt_time(end_sec)
-            f.write(f"{i + 1}\n{start_ts} --> {end_ts}\n{text_content.strip()}\n\n")
+            # Sub khớp thời lượng hình = voice của scene đó (cộng dồn theo durationSec thật).
+            d = float(dur) if dur else fallback
+            start_ts = _format_srt_time(cursor)
+            end_ts = _format_srt_time(cursor + d)
+            cursor += d
+            idx += 1
+            f.write(f"{idx}\n{start_ts} --> {end_ts}\n{text_content.strip()}\n\n")
 
     logger.info(f"[Video {video_id}] ✅ Đã tạo phụ đề: {srt_path}")
 
@@ -217,12 +239,13 @@ def _format_srt_time(seconds: float) -> str:
     return f"{h:02d}:{m:02d}:{s:02d},{ms:03d}"
 
 
-def burn_subtitles_into_video(video_id: str):
+def burn_subtitles_into_video(video_id: str, force: bool = False):
     """
     Burn the SRT subtitle file directly into the master video using ffmpeg.
-    Required for TikTok/Shorts where viewers won't toggle CC. Controlled by env BURN_SUBTITLES=true.
+    Required for TikTok/Shorts where viewers won't toggle CC. Enabled per-project
+    (force=True from Project.burnSubtitles) or via env BURN_SUBTITLES=true.
     """
-    if os.getenv("BURN_SUBTITLES", "false").lower() not in ("true", "1", "yes"):
+    if not force and os.getenv("BURN_SUBTITLES", "false").lower() not in ("true", "1", "yes"):
         return
 
     output_dir = os.path.join(ASSETS_DIR, "final_output")

@@ -23,6 +23,7 @@ model Project {
   voiceSpeed    Float    @default(1.0)
   voiceEmotion  String   @default("neutral")
   burnSubtitles Boolean  @default(false)
+  disableBgm    Boolean  @default(true)
   // AI model config — defaults to free/balanced preset (works without paid keys)
   scriptProvider  String  @default("google")
   scriptModel     String  @default("gemini-2.5-flash")
@@ -30,6 +31,10 @@ model Project {
   refineModel     String  @default("gemini-2.5-flash")
   imageProvider   String  @default("pexels")
   imageModel      String  @default("pexels-stock")
+  /// Fallback IMAGE provider when the primary one returns no image (quota/error)
+  imageFallbackProvider String @default("pexels")
+  /// Nhân vật mặc định của project — tự động áp dụng cho video mới nếu không chọn khác (Phase 5)
+  defaultCharacterId String?
   videoProvider   String  @default("local")
   videoModel      String  @default("slideshow")
   /// Custom system/base prompt prepended to AI script generation. Null = use built-in director template.
@@ -58,10 +63,14 @@ model Video {
   youtubeVideoId String?
   totalCostUsd   Float     @default(0)
   errorMsg       String?
+  /// Giai đoạn chi tiết hiện tại: script | images | voice | assemble | done (Phase 3)
+  stage          String?
   /// "master" = single assembled mp4, "clips" = per-scene mp4s only (no assembly)
   outputMode        String  @default("master")
   /// Target total duration in seconds (for clips mode — used by AI to plan scene count)
   targetDurationSec Int?
+  /// Gom nhiều video sinh ra từ 1 lượt batch submit (Phase 6)
+  batchId        String?
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
   publishedAt    DateTime?
@@ -73,6 +82,7 @@ model Video {
 
   @@index([projectId])
   @@index([status])
+  @@index([batchId])
   @@map("videos")
 }
 
@@ -86,6 +96,8 @@ model Scene {
   videoPrompt     String?
   imagePrompt     String?
   bgmPrompt       String?
+  /// Actual provider that produced this scene's image (gemini | pexels | picsum)
+  imageProvider   String?
   /// S3 keys (not local paths)
   audioKey        String?
   videoKey        String?
@@ -96,6 +108,8 @@ model Scene {
   errorMessage    String?
   veoJobId        String?
   costUsd         Float    @default(0)
+  /// Số lần regenerate ảnh/voice cho cảnh này (Phase 4)
+  regenCount      Int      @default(0)
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
@@ -104,6 +118,20 @@ model Scene {
 
   @@index([videoId])
   @@map("scenes")
+}
+
+// --------------- RENDER EVENTS (Phase 3 — nhật ký lỗi/bước để hiển thị) ---------------
+
+model RenderEvent {
+  id        String   @id @default(cuid())
+  videoId   String
+  level     String   // "info" | "warn" | "error"
+  stage     String   // script | image | voice | assemble | callback
+  message   String
+  createdAt DateTime @default(now())
+
+  @@index([videoId, createdAt])
+  @@map("render_events")
 }
 
 // --------------- SUBTITLE LINES ---------------

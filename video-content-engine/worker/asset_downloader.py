@@ -37,16 +37,24 @@ def generate_voiceover(text: str, dest_path: str, voice_id: str, api_key: str) -
     Path(dest_path).parent.mkdir(parents=True, exist_ok=True)
     # Default Vietnamese male voice; override via VOICE_NAME env var
     voice = os.getenv("VOICE_NAME", "vi-VN-NamMinhNeural")
-    try:
-        import edge_tts, asyncio
-        async def _run():
-            communicate = edge_tts.Communicate(text, voice)
-            await communicate.save(dest_path)
-        asyncio.run(_run())
-        return Path(dest_path).exists() and Path(dest_path).stat().st_size > 0
-    except Exception as e:
-        logger.error(f"Edge TTS voiceover failed: {e}")
-        return False
+    import time, random
+    # Retry: edge-tts hay trả "No audio received" khi nhiều scene gọi song song (rate-limit).
+    # Backoff + jitter giãn các request ra để mọi scene đều có tiếng.
+    for attempt in range(4):
+        try:
+            import edge_tts, asyncio
+            async def _run():
+                communicate = edge_tts.Communicate(text, voice)
+                await communicate.save(dest_path)
+            asyncio.run(_run())
+            if Path(dest_path).exists() and Path(dest_path).stat().st_size > 0:
+                return True
+            logger.warning(f"Edge TTS attempt {attempt+1}: no audio, retrying...")
+        except Exception as e:
+            logger.warning(f"Edge TTS attempt {attempt+1} failed: {e}")
+        time.sleep(2 * (attempt + 1) + random.uniform(0, 2))
+    logger.error("Edge TTS voiceover failed after 4 attempts")
+    return False
 
 
 def poll_runway_task(task_id: str, api_key: str, max_retries: int = 30, delay: int = 15) -> str | None:
@@ -75,7 +83,7 @@ def poll_runway_task(task_id: str, api_key: str, max_retries: int = 30, delay: i
     return None
 
 
-def _generate_video_from_prompt(prompt: str, dest_path: str, image_path: str = None, provider: str = None) -> bool:
+def _generate_video_from_prompt(prompt: str, dest_path: str, image_path: str = None, provider: str = None, scene_duration: float = None) -> bool:
     """
     Route video generation to a provider. Provider chosen per-project by the user
     (passed down from the manifest); falls back to the VIDEO_PROVIDER env var.
@@ -88,25 +96,27 @@ def _generate_video_from_prompt(prompt: str, dest_path: str, image_path: str = N
                     currently ignored (Runway image-to-video uses different param).
         provider: Video provider for this render. None → fall back to env.
     """
-    # Project stores provider as google/local/runway/gemini_session; map to worker names.
+    # Project stores provider as google/local/runway; map to worker names.
     provider = (provider or os.getenv("VIDEO_PROVIDER", "slideshow")).lower()
     provider = {"google": "veo3", "local": "slideshow", "vertex": "veo3"}.get(provider, provider)
     use_image = os.getenv("USE_IMAGE_TO_VIDEO", "true").lower() in ("true", "1", "yes")
 
     if provider == "slideshow":
-        # Free fallback: convert image to MP4 via ffmpeg (Ken Burns zoom effect)
+        # Ảnh giữ TĨNH đúng thời lượng voice → khi ghép sẽ cắt thẳng sang ảnh sau (hard cut).
+        # Doodle phẳng không hợp Ken Burns zoom (làm méo nét vẽ), nên bỏ hẳn zoompan.
         if not image_path or not Path(image_path).exists():
             logger.warning(f"Slideshow needs image_path, none provided")
             return False, False
-        duration = int(os.getenv("SCENE_VIDEO_SECONDS", "8"))
+        # Thời lượng hình = ĐÚNG độ dài voice (chính xác, không làm tròn → khớp nhịp lời đọc).
+        duration = max(2.0, float(scene_duration)) if scene_duration else float(os.getenv("SCENE_VIDEO_SECONDS", "8"))
         Path(dest_path).parent.mkdir(parents=True, exist_ok=True)
         import subprocess
         try:
             cmd = [
                 "ffmpeg", "-y", "-loop", "1", "-i", image_path,
                 "-c:v", "libx264", "-preset", "medium", "-crf", "20",
-                "-t", str(duration), "-pix_fmt", "yuv420p",
-                "-vf", f"scale=1920:1080:flags=lanczos:force_original_aspect_ratio=increase,crop=1920:1080,zoompan=z='min(zoom+0.0015,1.5)':d={duration*30}:s=1920x1080:fps=30",
+                "-t", f"{duration:.3f}", "-pix_fmt", "yuv420p",
+                "-vf", "scale=1920:1080:flags=lanczos:force_original_aspect_ratio=increase,crop=1920:1080",
                 "-r", "30", dest_path
             ]
             r = subprocess.run(cmd, capture_output=True, timeout=120)
@@ -118,12 +128,6 @@ def _generate_video_from_prompt(prompt: str, dest_path: str, image_path: str = N
         except Exception as e:
             logger.error(f"Slideshow gen failed: {e}")
             return False, False
-
-    if provider == "gemini_session":
-        # Free video qua subscription Gemini Pro/Ultra (cookie session) — song song với veo3.
-        from gemini_session_generator import generate_video_gemini_session
-        ok = generate_video_gemini_session(prompt, dest_path, image_path=image_path if use_image else None)
-        return ok, False
 
     if provider == "veo3":
         from veo3_generator import generate_video_veo3, Veo3TransientError, Veo3PermanentError
@@ -204,6 +208,20 @@ def _generate_video_from_prompt(prompt: str, dest_path: str, image_path: str = N
         return False, False
 
 
+def _audio_duration(path: str):
+    """Độ dài audio (giây) qua ffprobe; None nếu lỗi."""
+    try:
+        import subprocess
+        r = subprocess.run(
+            ["ffprobe", "-v", "error", "-show_entries", "format=duration",
+             "-of", "default=noprint_wrappers=1:nokey=1", path],
+            capture_output=True, text=True, timeout=30,
+        )
+        return float(r.stdout.strip())
+    except Exception:
+        return None
+
+
 def download_assets_for_scene(scene: dict, assets_dir: str, runway_api_key: str,
                                elevenlabs_api_key: str, voice_id: str,
                                video_provider: str = None) -> dict:
@@ -231,11 +249,14 @@ def download_assets_for_scene(scene: dict, assets_dir: str, runway_api_key: str,
                 results["image_path"] = img_path
 
     # 2. Voiceover via Edge TTS (free, no API key required) or ElevenLabs
+    voice_duration = None
     text = scene.get("narration_text", "")
     if text:
         audio_path = str(scene_dir / f"scene_{scene_id}_voice.mp3")
         if generate_voiceover(text, audio_path, voice_id or "", elevenlabs_api_key or ""):
             results["audio_path"] = audio_path
+            voice_duration = _audio_duration(audio_path)
+            results["duration"] = voice_duration
 
     # 3. Video generation — three strategies in order of priority:
     #    a) video_url already provided (pre-rendered, skip generation)
@@ -256,7 +277,7 @@ def download_assets_for_scene(scene: dict, assets_dir: str, runway_api_key: str,
     elif video_prompt:
         # Pass DALL-E scene image (if downloaded) as initial frame → image-to-video
         # giúp visual của Veo3 video khớp với scene image (consistency between scenes)
-        gen_ok, fallback_used = _generate_video_from_prompt(video_prompt, vid_path, image_path=results.get("image_path"), provider=video_provider)
+        gen_ok, fallback_used = _generate_video_from_prompt(video_prompt, vid_path, image_path=results.get("image_path"), provider=video_provider, scene_duration=voice_duration)
         if gen_ok:
             results["video_path"] = vid_path
         results["fallback_used"] = fallback_used

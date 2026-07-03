@@ -11,13 +11,16 @@ export class CreateProjectDto {
   @IsOptional() @IsNumber() voiceSpeed?: number;
   @IsOptional() @IsString() voiceEmotion?: string;
   @IsOptional() @IsBoolean() burnSubtitles?: boolean;
+  @IsOptional() @IsBoolean() disableBgm?: boolean;
   @IsOptional() @IsString() scriptProvider?: string;
   @IsOptional() @IsString() scriptModel?: string;
   @IsOptional() @IsString() refineProvider?: string;
   @IsOptional() @IsString() refineModel?: string;
   @IsOptional() @IsString() imageProvider?: string;
   @IsOptional() @IsString() imageModel?: string;
+  @IsOptional() @IsString() imageFallbackProvider?: string;
   @IsOptional() @IsString() videoProvider?: string;
   @IsOptional() @IsString() videoModel?: string;
   @IsOptional() @IsString() scriptBasePrompt?: string;
+  @IsOptional() @IsString() defaultCharacterId?: string;
 }

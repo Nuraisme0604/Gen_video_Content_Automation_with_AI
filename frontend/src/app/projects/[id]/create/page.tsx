@@ -68,6 +68,15 @@ export default function CreatePage({ params }: { params: Promise<{ id: string }>
   });
   const [draftSavedAt, setDraftSavedAt] = useState<number | null>(null);
   const progressRef = useRef<HTMLDivElement | null>(null);
+  const appliedDefaultCharRef = useRef(false);
+
+  // Phase 5: pre-chọn nhân vật mặc định của project (1 lần), user vẫn đổi được sau đó
+  useEffect(() => {
+    if (!appliedDefaultCharRef.current && project?.defaultCharacterId && !form.characterId) {
+      setForm(f => ({ ...f, characterId: project.defaultCharacterId }));
+      appliedDefaultCharRef.current = true;
+    }
+  }, [project?.defaultCharacterId]);
 
   // Persist activeSourceId so navigating away + back resumes the in-progress pipeline
   const setActiveSourceId = (id: string | null) => {
@@ -135,6 +144,7 @@ export default function CreatePage({ params }: { params: Promise<{ id: string }>
       localStorage.removeItem(draftKey);
       scrollToProgress();
       toast.success('Đã gửi yêu cầu', { description: 'Pipeline AI đang chạy...' });
+      if (data.costWarning) toast.warning('Chi phí cao', { description: data.costWarning });
     },
     onError: (e: any) => toast.error('Gửi script thất bại', { description: errMsg(e) }),
   });

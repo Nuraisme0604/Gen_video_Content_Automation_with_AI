@@ -6,6 +6,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { JobsGateway } from '../gateways/jobs.gateway';
 import { NotificationService } from '../modules/notification/notification.service';
 import { JobService } from '../modules/job/job.service';
+import { RenderEventService } from '../modules/render-event/render-event.service';
 import { firstValueFrom } from 'rxjs';
 
 @ApiTags('webhooks')
@@ -20,6 +21,7 @@ export class WorkerWebhookController {
     private jobService: JobService,
     private config: ConfigService,
     private http: HttpService,
+    private renderEvents: RenderEventService,
   ) {}
 
   /** Python worker pushes scene progress here. */
@@ -158,6 +160,23 @@ export class WorkerWebhookController {
       }
     }
 
+    return { ok: true };
+  }
+
+  /** Python worker pushes a step/error event here for the "nhật ký" timeline (Phase 3). */
+  @Post('render-event')
+  async renderEvent(@Body() body: {
+    videoId: string;
+    level: 'info' | 'warn' | 'error';
+    stage: string;
+    message: string;
+  }) {
+    await this.renderEvents.create(body);
+    await this.prisma.video.updateMany({
+      where: { id: body.videoId },
+      data: { stage: body.stage },
+    }).catch(() => {});
+    this.gateway.emitRenderEvent(body.videoId, body);
     return { ok: true };
   }
 

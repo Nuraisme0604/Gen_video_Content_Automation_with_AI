@@ -99,26 +99,6 @@ class TestVeo3FallbackKenBurns(unittest.TestCase):
         self.assertTrue(ok)
         self.assertTrue(fallback_used)
 
-    @patch.dict(os.environ, {"VIDEO_PROVIDER": "slideshow"})
-    def test_explicit_gemini_session_does_not_fall_back_to_slideshow(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            dest = os.path.join(tmp, "out.mp4")
-            with patch(
-                "gemini_session_generator.generate_video_gemini_session",
-                return_value=True,
-            ) as generate_session:
-                with patch("subprocess.run") as mock_sub:
-                    ok, fallback_used = _generate_video_from_prompt(
-                        "video prompt",
-                        dest,
-                        provider="gemini_session",
-                    )
-
-        self.assertTrue(ok)
-        self.assertFalse(fallback_used)
-        generate_session.assert_called_once()
-        mock_sub.assert_not_called()
-
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

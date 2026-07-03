@@ -2,10 +2,10 @@
 import { use, useState, useCallback, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { getVideo, getVideoPreviewUrl, getVideoClips, regenerateScene, updateVideo, deleteVideo } from '@/lib/api';
+import { getVideo, getVideoPreviewUrl, getVideoClips, updateVideo, deleteVideo, regenerateSceneImage, regenerateSceneVoice, reassembleVideo, updateScene } from '@/lib/api';
 import { useJobSocket } from '@/hooks/useJobSocket';
 import { statusLabel, statusColor, cn } from '@/lib/utils';
-import { RefreshCw, AlertCircle, CheckCircle2, Clock, Volume2, Pencil, Save, Trash2, Download, X } from 'lucide-react';
+import { AlertCircle, CheckCircle2, Clock, Volume2, Pencil, Save, Trash2, Download, X, ImagePlus, Mic, Combine } from 'lucide-react';
 import { toast } from 'sonner';
 
 export default function VideoDetailPage({ params }: { params: Promise<{ id: string; vid: string }> }) {
@@ -16,6 +16,8 @@ export default function VideoDetailPage({ params }: { params: Promise<{ id: stri
   const [liveStage, setLiveStage] = useState('');
   const [editingTitle, setEditingTitle] = useState(false);
   const [titleDraft, setTitleDraft] = useState('');
+  const [editingSceneId, setEditingSceneId] = useState<string | null>(null);
+  const [sceneTextDraft, setSceneTextDraft] = useState('');
 
   const { data: video } = useQuery({ queryKey: ['video', vid], queryFn: () => getVideo(vid) });
   const { data: preview } = useQuery({
@@ -35,10 +37,32 @@ export default function VideoDetailPage({ params }: { params: Promise<{ id: stri
 
   const errMsg = (e: any) => e?.response?.data?.message || e?.message || 'Lỗi không xác định';
 
-  const regenerate = useMutation({
-    mutationFn: regenerateScene,
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['video', vid] }); toast.success('Đang chạy lại cảnh...'); },
-    onError: (e: any) => toast.error('Chạy lại thất bại', { description: errMsg(e) }),
+  const regenImage = useMutation({
+    mutationFn: ({ index, prompt }: { index: number; prompt?: string }) => regenerateSceneImage(vid, index, prompt),
+    onSuccess: () => toast.success('Đang sinh lại ảnh cho cảnh này...'),
+    onError: (e: any) => toast.error('Sinh lại ảnh thất bại', { description: errMsg(e) }),
+  });
+
+  const regenVoice = useMutation({
+    mutationFn: (index: number) => regenerateSceneVoice(vid, index),
+    onSuccess: () => toast.success('Đang sinh lại voice cho cảnh này...'),
+    onError: (e: any) => toast.error('Sinh lại voice thất bại', { description: errMsg(e) }),
+  });
+
+  const reassemble = useMutation({
+    mutationFn: () => reassembleVideo(vid),
+    onSuccess: () => toast.success('Đang ghép lại video...', { description: 'Video mới sẽ sẵn sàng sau ít phút.' }),
+    onError: (e: any) => toast.error('Ghép lại thất bại', { description: errMsg(e) }),
+  });
+
+  const saveSceneText = useMutation({
+    mutationFn: ({ id, voiceoverText }: { id: string; voiceoverText: string }) => updateScene(id, { voiceoverText }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['video', vid] });
+      setEditingSceneId(null);
+      toast.success('Đã lưu lời — bấm "Sinh lại voice" để cập nhật tiếng.');
+    },
+    onError: (e: any) => toast.error('Lưu thất bại', { description: errMsg(e) }),
   });
 
   const saveTitle = useMutation({
@@ -141,6 +165,14 @@ export default function VideoDetailPage({ params }: { params: Promise<{ id: stri
         {/* Action buttons */}
         <div className="flex items-center gap-2 shrink-0">
           <button
+            onClick={() => reassemble.mutate()}
+            disabled={reassemble.isPending || scenes.length === 0}
+            className="flex items-center gap-1.5 text-sm border border-zinc-700 text-zinc-300 px-3 py-1.5 rounded-lg hover:border-violet-500 hover:text-violet-300 disabled:opacity-40"
+            title="Ghép lại video từ các cảnh hiện có (sau khi sửa/regenerate)"
+          >
+            <Combine size={13} /> {reassemble.isPending ? 'Đang ghép...' : 'Ghép lại video'}
+          </button>
+          <button
             onClick={handleDownload}
             disabled={!preview?.url}
             className="flex items-center gap-1.5 text-sm border border-zinc-700 text-zinc-300 px-3 py-1.5 rounded-lg hover:border-violet-500 hover:text-violet-300 disabled:opacity-40 disabled:cursor-not-allowed"
@@ -228,7 +260,7 @@ export default function VideoDetailPage({ params }: { params: Promise<{ id: stri
         </div>
       )}
 
-      {/* Scene list with prompt + status — for editing/regenerating individual scenes */}
+      {/* Scene list — xem/sửa lời, sinh lại ảnh/voice riêng từng cảnh (Phase 4) */}
       <div className="space-y-3">
         {scenes.map((s: any) => (
           <div key={s.id} className="card p-4">
@@ -245,12 +277,52 @@ export default function VideoDetailPage({ params }: { params: Promise<{ id: stri
                     {statusLabel(s.status)}
                   </span>
                   {s.costUsd > 0 && <span className="text-xs text-zinc-600">${s.costUsd.toFixed(3)}</span>}
+                  {s.imageProvider && (
+                    <span className={cn(
+                      'text-[10px] px-1.5 py-0.5 rounded-full',
+                      s.imageProvider === 'picsum' ? 'bg-amber-500/20 text-amber-400' :
+                      s.imageProvider === 'pexels' ? 'bg-sky-500/20 text-sky-400' :
+                                                     'bg-violet-500/20 text-violet-400',
+                    )}>
+                      {s.imageProvider === 'picsum' ? 'Ảnh tạm' : s.imageProvider === 'pexels' ? 'Ảnh Stock' : 'Ảnh AI'}
+                    </span>
+                  )}
+                  {s.regenCount > 0 && <span className="text-[10px] text-zinc-600">đã sửa {s.regenCount} lần</span>}
                 </div>
 
-                {s.voiceoverText && (
-                  <p className="text-sm text-zinc-300 line-clamp-2 mb-1">
-                    <Volume2 size={11} className="inline mr-1 text-zinc-500" />
-                    {s.voiceoverText}
+                {editingSceneId === s.id ? (
+                  <div className="mb-1.5">
+                    <textarea
+                      autoFocus
+                      value={sceneTextDraft}
+                      onChange={e => setSceneTextDraft(e.target.value)}
+                      rows={3}
+                      className="w-full bg-zinc-800 text-sm rounded-lg px-2.5 py-1.5 border border-violet-500 outline-none resize-y"
+                    />
+                    <div className="flex items-center gap-2 mt-1.5">
+                      <button
+                        onClick={() => saveSceneText.mutate({ id: s.id, voiceoverText: sceneTextDraft })}
+                        disabled={saveSceneText.isPending || !sceneTextDraft.trim()}
+                        className="flex items-center gap-1 text-xs bg-violet-600 hover:bg-violet-700 disabled:opacity-50 text-white px-2.5 py-1 rounded-lg"
+                      >
+                        <Save size={12} /> Lưu lời
+                      </button>
+                      <button onClick={() => setEditingSceneId(null)} className="text-xs text-zinc-500 hover:text-white px-2 py-1">
+                        Huỷ
+                      </button>
+                    </div>
+                  </div>
+                ) : s.voiceoverText && (
+                  <p className="text-sm text-zinc-300 line-clamp-2 mb-1 group/text flex items-start gap-1.5">
+                    <Volume2 size={11} className="inline mt-0.5 shrink-0 text-zinc-500" />
+                    <span className="flex-1">{s.voiceoverText}</span>
+                    <button
+                      onClick={() => { setEditingSceneId(s.id); setSceneTextDraft(s.voiceoverText || ''); }}
+                      className="opacity-0 group-hover/text:opacity-100 text-zinc-500 hover:text-violet-400 shrink-0"
+                      title="Sửa lời"
+                    >
+                      <Pencil size={12} />
+                    </button>
                   </p>
                 )}
 
@@ -261,22 +333,35 @@ export default function VideoDetailPage({ params }: { params: Promise<{ id: stri
                 {s.status === 'failed' && s.errorMessage && (
                   <p className="text-xs text-rose-400 mt-1">{s.errorMessage}</p>
                 )}
-              </div>
 
-              {(s.status === 'failed' || s.status === 'done') && (
-                <button
-                  onClick={() => regenerate.mutate(s.id)}
-                  disabled={regenerate.isPending}
-                  className="shrink-0 text-zinc-500 hover:text-white p-1 rounded hover:bg-zinc-800"
-                  title="Chạy lại cảnh này"
-                >
-                  <RefreshCw size={14} />
-                </button>
-              )}
+                <div className="flex items-center gap-1.5 mt-2">
+                  <button
+                    onClick={() => regenImage.mutate({ index: s.sceneIndex })}
+                    disabled={regenImage.isPending}
+                    className="flex items-center gap-1 text-[11px] border border-zinc-700 text-zinc-400 px-2 py-1 rounded-lg hover:border-violet-500 hover:text-violet-300 disabled:opacity-40"
+                    title="Sinh lại ảnh cho cảnh này"
+                  >
+                    <ImagePlus size={11} /> Sinh lại ảnh
+                  </button>
+                  <button
+                    onClick={() => regenVoice.mutate(s.sceneIndex)}
+                    disabled={regenVoice.isPending}
+                    className="flex items-center gap-1 text-[11px] border border-zinc-700 text-zinc-400 px-2 py-1 rounded-lg hover:border-violet-500 hover:text-violet-300 disabled:opacity-40"
+                    title="Sinh lại voice cho cảnh này (dùng lời hiện tại)"
+                  >
+                    <Mic size={11} /> Sinh lại voice
+                  </button>
+                </div>
+              </div>
             </div>
           </div>
         ))}
       </div>
+      {scenes.length > 0 && (
+        <p className="text-[11px] text-zinc-600 mt-3">
+          💡 Sau khi sửa/sinh lại cảnh, bấm "Ghép lại video" ở trên để cập nhật video hoàn chỉnh.
+        </p>
+      )}
     </div>
   );
 }

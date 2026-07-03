@@ -3,7 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import { getProject, getVideos, getJobs } from '@/lib/api';
 import { use } from 'react';
 import Link from 'next/link';
-import { Plus, Video, Clock, DollarSign } from 'lucide-react';
+import { Plus, Video, Clock, DollarSign, Layers } from 'lucide-react';
 import { statusLabel, statusColor, formatDuration, cn } from '@/lib/utils';
 
 export default function ProjectPage({ params }: { params: Promise<{ id: string }> }) {
@@ -23,12 +23,20 @@ export default function ProjectPage({ params }: { params: Promise<{ id: string }
           <h1 className="text-xl font-semibold">{project?.name || '...'}</h1>
           <p className="text-sm text-zinc-500">{project?.niche} · {project?.language}</p>
         </div>
-        <Link
-          href={`/projects/${id}/create`}
-          className="flex items-center gap-2 bg-violet-600 hover:bg-violet-700 text-white text-sm px-3 py-1.5 rounded-lg"
-        >
-          <Plus size={14} /> Tạo video mới
-        </Link>
+        <div className="flex items-center gap-2">
+          <Link
+            href={`/projects/${id}/batch`}
+            className="flex items-center gap-2 border border-zinc-700 text-zinc-300 hover:border-violet-500 hover:text-violet-300 text-sm px-3 py-1.5 rounded-lg"
+          >
+            <Layers size={14} /> Tạo hàng loạt
+          </Link>
+          <Link
+            href={`/projects/${id}/create`}
+            className="flex items-center gap-2 bg-violet-600 hover:bg-violet-700 text-white text-sm px-3 py-1.5 rounded-lg"
+          >
+            <Plus size={14} /> Tạo video mới
+          </Link>
+        </div>
       </div>
 
       {/* Stats */}

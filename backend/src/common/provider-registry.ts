@@ -123,30 +123,6 @@ const PROVIDER_REGISTRY: ProviderEntry[] = [
     requestFormat: 'pexels_photo',
     responseExtract: 'photos[0].src',
   },
-
-  // ── Gemini session (Pro/Ultra via browser cookies) — SCRIPT ───────────────
-  // No API key: the python_worker drives the logged-in web session with stored
-  // cookies. n8n calls the worker, which returns an OpenAI-shaped response.
-  {
-    provider: 'gemini_session',
-    capability: 'SCRIPT',
-    models: ['gemini-veo', 'gemini-2.5-pro', 'gemini-2.5-flash'],
-    baseUrl: 'http://python_worker:8000/api/v1/gemini-session/chat',
-    auth: { mode: 'header', name: 'x-session', valueTemplate: '{key}' },
-    requestFormat: 'openai_chat',
-    responseExtract: 'choices[0].message.content',
-  },
-
-  // ── Gemini session — IMAGE ─────────────────────────────────────────────────
-  {
-    provider: 'gemini_session',
-    capability: 'IMAGE',
-    models: ['gemini-veo', 'gemini-2.5-flash-image'],
-    baseUrl: 'http://python_worker:8000/api/v1/gemini-session/image',
-    auth: { mode: 'header', name: 'x-session', valueTemplate: '{key}' },
-    requestFormat: 'gemini_image',
-    responseExtract: 'candidates[0].content.parts',
-  },
 ];
 
 /**

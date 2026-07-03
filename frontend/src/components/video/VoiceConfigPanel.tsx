@@ -12,7 +12,7 @@ const EMOTIONS = ['neutral', 'happy', 'sad', 'serious', 'excited'];
 
 type Props = {
   projectId: string;
-  config: { voiceId?: string; voiceSpeed?: number; voiceEmotion?: string; burnSubtitles?: boolean };
+  config: { voiceId?: string; voiceSpeed?: number; voiceEmotion?: string; burnSubtitles?: boolean; disableBgm?: boolean; language?: string };
   onChange: (patch: any) => void;
 };
 
@@ -96,6 +96,30 @@ export function VoiceConfigPanel({ projectId, config, onChange }: Props) {
         />
         <span className="text-zinc-300">Burn subtitle vào video</span>
       </label>
+
+      {/* BGM */}
+      <label className="flex items-center gap-2 text-sm cursor-pointer">
+        <input
+          type="checkbox"
+          checked={config.disableBgm ?? true}
+          onChange={e => set({ disableBgm: e.target.checked })}
+          className="accent-violet-600"
+        />
+        <span className="text-zinc-300">Tắt nhạc nền (chỉ giữ tiếng)</span>
+      </label>
+
+      {/* Narration language */}
+      <div>
+        <div className="text-xs text-zinc-500 mb-2">Ngôn ngữ lời dẫn</div>
+        <select
+          value={config.language ?? 'vi'}
+          onChange={e => set({ language: e.target.value })}
+          className="w-full bg-zinc-800 text-sm rounded-lg px-3 py-2 border border-zinc-700 outline-none focus:border-violet-500"
+        >
+          <option value="vi">Tiếng Việt</option>
+          <option value="en">English</option>
+        </select>
+      </div>
     </div>
   );
 }

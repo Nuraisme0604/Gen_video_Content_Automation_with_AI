@@ -45,4 +45,8 @@ export class JobsGateway {
   emitSceneProgress(videoId: string, payload: { sceneIndex: number; status: string }) {
     this.server.to(`video:${videoId}`).emit('scene-progress', { videoId, ...payload });
   }
+
+  emitRenderEvent(videoId: string, payload: { level: string; stage: string; message: string }) {
+    this.server.to(`video:${videoId}`).emit('render-event', { videoId, ...payload });
+  }
 }

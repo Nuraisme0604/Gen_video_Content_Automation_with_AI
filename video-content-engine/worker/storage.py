@@ -26,26 +26,30 @@ def ensure_bucket() -> bool:
     s3 = _client()
     try:
         s3.head_bucket(Bucket=S3_BUCKET)
-        return True
     except ClientError:
         try:
             s3.create_bucket(Bucket=S3_BUCKET)
-            # Public read so FE can play directly
-            import json as _json
-            policy = {
-                "Version": "2012-10-17",
-                "Statement": [{
-                    "Effect": "Allow", "Principal": "*",
-                    "Action": ["s3:GetObject"],
-                    "Resource": [f"arn:aws:s3:::{S3_BUCKET}/*"],
-                }]
-            }
-            s3.put_bucket_policy(Bucket=S3_BUCKET, Policy=_json.dumps(policy))
-            logger.info(f"Created bucket {S3_BUCKET} with public read policy")
-            return True
+            logger.info(f"Created bucket {S3_BUCKET}")
         except ClientError as e:
             logger.error(f"Cannot create bucket: {e}")
             return False
+    # Always (re)apply public-read so FE can play videos directly. Local/per-machine
+    # tool — assets bucket is meant to be public. Idempotent: covers buckets that
+    # pre-existed (e.g. created by minio init) without the policy.
+    try:
+        import json as _json
+        policy = {
+            "Version": "2012-10-17",
+            "Statement": [{
+                "Effect": "Allow", "Principal": "*",
+                "Action": ["s3:GetObject"],
+                "Resource": [f"arn:aws:s3:::{S3_BUCKET}/*"],
+            }]
+        }
+        s3.put_bucket_policy(Bucket=S3_BUCKET, Policy=_json.dumps(policy))
+    except ClientError as e:
+        logger.warning(f"Cannot set public-read policy on {S3_BUCKET}: {e}")
+    return True
 
 
 def upload_file(local_path: str, key: str, content_type: str = "video/mp4") -> str | None:
@@ -63,6 +67,17 @@ def upload_file(local_path: str, key: str, content_type: str = "video/mp4") -> s
     except Exception as e:
         logger.error(f"Upload failed for {local_path}: {e}")
         return None
+
+
+def download_file(key: str, local_path: str) -> bool:
+    """Download an S3 object to a local path. Returns True on success."""
+    try:
+        Path(local_path).parent.mkdir(parents=True, exist_ok=True)
+        _client().download_file(S3_BUCKET, key, local_path)
+        return True
+    except Exception as e:
+        logger.error(f"Download failed for {key}: {e}")
+        return False
 
 
 def public_url(key: str) -> str:

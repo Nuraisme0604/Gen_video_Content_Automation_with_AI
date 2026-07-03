@@ -15,8 +15,8 @@ urllib3>=2.0.7
 sqlalchemy>=2.0.23,<3.0.0
 psycopg2-binary>=2.9.9
 
-# Pydantic v2 (>=2.12.5 cho gemini-webapi 2.0; vẫn thoả google-genai/anthropic)
-pydantic>=2.12.5,<3.0.0
+# Pydantic v2 (thoả google-genai + anthropic)
+pydantic>=2.9.0,<3.0.0
 
 # YouTube upload
 google-api-python-client>=2.108.0
@@ -27,11 +27,6 @@ google-auth-httplib2>=0.1.1
 # Google Veo3 video generation
 # >=1.10 yêu cầu cho image-to-video kwarg. Versions 1.0-1.4 fall back text-only tự động.
 google-genai>=1.10.0,<2.0.0
-
-# Gemini session — free SCRIPT + IMAGE + video qua subscription Google AI Pro/Ultra (không key).
-# ==2.0.0: hỗ trợ image-gen (.images) + auto-refresh cookie. Cần Python 3.11 (enum.StrEnum) —
-# xem Dockerfile. Dùng curl_cffi nên không đụng httpx (tránh bug proxies của bản <=1.6).
-gemini-webapi==2.0.0
 
 # Anthropic Claude (script refinement)
 anthropic>=0.39.0,<1.0.0

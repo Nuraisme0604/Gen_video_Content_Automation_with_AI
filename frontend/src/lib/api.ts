@@ -15,14 +15,21 @@ export const updateProject = (id: string, data: any) => api.patch(`/projects/${i
 export const deleteProject = (id: string) => api.delete(`/projects/${id}`).then(r => r.data);
 
 // ---- Videos ----
-export const getVideos = (projectId?: string) =>
-  api.get('/videos', { params: { projectId } }).then(r => r.data);
+export const getVideos = (projectId?: string, batchId?: string) =>
+  api.get('/videos', { params: { projectId, batchId } }).then(r => r.data);
 export const getVideo = (id: string) => api.get(`/videos/${id}`).then(r => r.data);
 export const getVideoPreviewUrl = (id: string) => api.get(`/videos/${id}/preview-url`).then(r => r.data);
 export const getVideoClips = (id: string) => api.get(`/videos/${id}/clips`).then(r => r.data);
+export const getRenderEvents = (id: string) => api.get(`/videos/${id}/render-events`).then(r => r.data);
 export const updateVideo = (id: string, data: { title?: string; status?: string }) =>
   api.patch(`/videos/${id}`, data).then(r => r.data);
 export const deleteVideo = (id: string) => api.delete(`/videos/${id}`).then(r => r.data);
+export const regenerateSceneImage = (videoId: string, index: number, prompt?: string) =>
+  api.post(`/videos/${videoId}/scenes/${index}/regenerate-image`, { prompt }).then(r => r.data);
+export const regenerateSceneVoice = (videoId: string, index: number) =>
+  api.post(`/videos/${videoId}/scenes/${index}/regenerate-voice`).then(r => r.data);
+export const reassembleVideo = (videoId: string) =>
+  api.post(`/videos/${videoId}/reassemble`).then(r => r.data);
 
 // ---- Scenes ----
 export const getScenes = (videoId: string) =>
@@ -47,6 +54,8 @@ export const getSources = (projectId: string) =>
   api.get(`/sources/project/${projectId}`).then(r => r.data);
 export const estimateCost = (projectId: string, sceneCount: number, qualityMode?: string) =>
   api.get('/sources/estimate-cost', { params: { projectId, sceneCount, qualityMode } }).then(r => r.data);
+export const createBatch = (data: { projectId: string; titles: string[]; sceneCount?: number; qualityMode?: string }) =>
+  api.post('/sources/batch', data).then(r => r.data);
 
 // ---- Jobs ----
 export type JobsPage = { items: any[]; total: number; limit: number; offset: number };

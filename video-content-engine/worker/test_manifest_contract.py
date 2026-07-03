@@ -17,7 +17,7 @@ class TestRenderManifestContract(unittest.TestCase):
             "narration_script": "Full narration",
             "thumbnail_text": "Thumbnail",
             "seo_keywords": [],
-            "video_provider": "gemini_session",
+            "video_provider": "slideshow",
             "scenes": [
                 {
                     "scene_id": str(index + 1),
@@ -33,7 +33,7 @@ class TestRenderManifestContract(unittest.TestCase):
 
         self.assertEqual(manifest.scenes[0].narration_text, "Scene narration 1")
         self.assertEqual(len(manifest.scenes), 1)
-        self.assertEqual(manifest.video_provider, "gemini_session")
+        self.assertEqual(manifest.video_provider, "slideshow")
 
     def test_render_endpoint_accepts_four_scenes(self):
         with patch("main_server.process_video_pipeline") as process_pipeline:
@@ -46,7 +46,7 @@ class TestRenderManifestContract(unittest.TestCase):
         )
         process_pipeline.assert_called_once()
         queued_manifest = process_pipeline.call_args.args[0]
-        self.assertEqual(queued_manifest.video_provider, "gemini_session")
+        self.assertEqual(queued_manifest.video_provider, "slideshow")
 
     def test_failure_message_names_provider_and_missing_assets(self):
         manifest = RenderManifest.model_validate(self._manifest(2))
@@ -65,7 +65,7 @@ class TestRenderManifestContract(unittest.TestCase):
 
         error = _all_scenes_failed_error(manifest, completed_scenes)
 
-        self.assertIn("video provider 'gemini_session'", error)
+        self.assertIn("video provider 'slideshow'", error)
         self.assertIn("scene 1: missing video, image", error)
         self.assertIn("scene 2: missing video, voiceover", error)
 

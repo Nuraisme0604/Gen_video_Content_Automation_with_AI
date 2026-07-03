@@ -1,4 +1,3 @@
-# 3.11+ bắt buộc cho gemini-webapi 2.0 (dùng enum.StrEnum) — hỗ trợ session script+image+video.
 FROM python:3.11-slim
 
 # Install system dependencies: FFmpeg, fonts, wget

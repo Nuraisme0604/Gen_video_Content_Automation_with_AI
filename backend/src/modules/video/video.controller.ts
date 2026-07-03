@@ -1,4 +1,4 @@
-import { Controller, Get, Patch, Delete, Param, Body, Query } from '@nestjs/common';
+import { Controller, Get, Patch, Post, Delete, Param, Body, Query } from '@nestjs/common';
 import { ApiTags, ApiQuery } from '@nestjs/swagger';
 import { VideoService } from './video.service';
 
@@ -9,8 +9,9 @@ export class VideoController {
 
   @Get()
   @ApiQuery({ name: 'projectId', required: false })
-  list(@Query('projectId') projectId?: string) {
-    return this.svc.list(projectId);
+  @ApiQuery({ name: 'batchId', required: false })
+  list(@Query('projectId') projectId?: string, @Query('batchId') batchId?: string) {
+    return this.svc.list(projectId, batchId);
   }
 
   @Get(':id') get(@Param('id') id: string) { return this.svc.get(id); }
@@ -22,4 +23,19 @@ export class VideoController {
   @Patch(':id') update(@Param('id') id: string, @Body() body: Record<string, any>) { return this.svc.update(id, body); }
 
   @Delete(':id') remove(@Param('id') id: string) { return this.svc.remove(id); }
+
+  @Post(':id/scenes/:index/regenerate-image')
+  regenerateSceneImage(@Param('id') id: string, @Param('index') index: string, @Body() body: { prompt?: string }) {
+    return this.svc.regenerateSceneImage(id, parseInt(index, 10), body?.prompt);
+  }
+
+  @Post(':id/scenes/:index/regenerate-voice')
+  regenerateSceneVoice(@Param('id') id: string, @Param('index') index: string) {
+    return this.svc.regenerateSceneVoice(id, parseInt(index, 10));
+  }
+
+  @Post(':id/reassemble')
+  reassemble(@Param('id') id: string) {
+    return this.svc.reassemble(id);
+  }
 }

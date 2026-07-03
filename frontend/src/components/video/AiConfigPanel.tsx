@@ -16,7 +16,6 @@ const SUGGESTED_MODELS: Record<string, string[]> = {
   replicate: ['black-forest-labs/flux-1.1-pro', 'kwaivgi/kling-1.6', 'luma/dream-machine'],
   pexels:    ['pexels-stock', 'pexels-video'],
   local:     ['slideshow'],
-  gemini_session: ['gemini-veo'],
   'edge-tts':['vi-VN-NamMinhNeural', 'vi-VN-HoaiMyNeural', 'en-US-AriaNeural', 'en-US-GuyNeural'],
 };
 
@@ -36,13 +35,7 @@ const TASK_MODEL_OVERRIDES: Record<string, Record<string, string[]>> = {
   },
   video: {
     google: ['veo-3.0', 'veo-2.0'],
-    gemini_session: ['gemini-veo'],
   },
-};
-
-// Friendly provider names for the dropdown (raw key shown if not listed).
-const PROVIDER_LABELS: Record<string, string> = {
-  gemini_session: 'Tài khoản Gemini (Pro/Ultra)',
 };
 
 // Brief tagline shown next to model when user picks it
@@ -66,7 +59,6 @@ const MODEL_NOTES: Record<string, string> = {
   'kwaivgi/kling-1.6': '$0.20/giây — cinematic',
   'pexels-video':      'Free — B-roll có sẵn',
   'slideshow':         'Free — Ken Burns ảnh tĩnh',
-  'gemini-veo':        'Free qua gói Gemini Pro/Ultra — không tốn API key',
   'eleven_multilingual_v2': '$0.30/min — đa NN, cảm xúc',
   'eleven_music':      '$22/tháng — AI nhạc nền',
   'tts-1':             '$0.02/1K char',
@@ -113,17 +105,12 @@ export function AiConfigPanel({ projectId, config, onChange }: Props) {
 
   const set = (patch: any) => { onChange(patch); save.mutate(patch); };
 
-  // gemini_session is stored as one VIDEO row but the worker proxy can also drive
-  // SCRIPT + IMAGE via the same session, so offer it for those tasks when connected.
-  const sessionConnected = (allKeys as any[]).some(k => k.provider === 'gemini_session' && k.isActive);
-
   // Providers with at least 1 active key for a given capability + free providers always available
   const availableProviders = (capability: string): string[] => {
     const fromKeys = (allKeys as any[])
       .filter(k => k.type === capability && k.isActive)
       .map(k => k.provider as string);
-    const session = sessionConnected && (capability === 'SCRIPT' || capability === 'IMAGE') ? ['gemini_session'] : [];
-    return [...new Set([...FREE_PROVIDERS.filter(p => SUGGESTED_MODELS[p]?.length), ...session, ...fromKeys])];
+    return [...new Set([...FREE_PROVIDERS.filter(p => SUGGESTED_MODELS[p]?.length), ...fromKeys])];
   };
 
   return (
@@ -169,7 +156,7 @@ export function AiConfigPanel({ projectId, config, onChange }: Props) {
                 <option value="">— chọn provider —</option>
                 {providers.map(p => (
                   <option key={p} value={p}>
-                    {PROVIDER_LABELS[p] || p}{FREE_PROVIDERS.includes(p) ? ' (free)' : ''}
+                    {p}{FREE_PROVIDERS.includes(p) ? ' (free)' : ''}
                   </option>
                 ))}
                 {/* Show current provider even if no key (so user sees what's saved) */}

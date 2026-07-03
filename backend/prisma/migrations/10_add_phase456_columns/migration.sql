@@ -1,0 +1,5 @@
+ALTER TABLE "scenes"  ADD COLUMN IF NOT EXISTS "regenCount" INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE "Project" ADD COLUMN IF NOT EXISTS "defaultCharacterId" TEXT;
+ALTER TABLE "videos"  ADD COLUMN IF NOT EXISTS "batchId" TEXT;
+
+CREATE INDEX IF NOT EXISTS "videos_batchId_idx" ON "videos"("batchId");
