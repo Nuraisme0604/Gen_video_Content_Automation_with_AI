@@ -399,6 +399,18 @@ def process_video_pipeline(manifest: RenderManifest):
                                 logger.info(f"[{video_id}] Scene {scene_order} checkpoint uploaded: {clip_key}")
                         except Exception as ue:
                             logger.warning(f"[{video_id}] Scene {scene_order} checkpoint upload failed: {ue}")
+                    # Voice audio cũng phải lên MinIO như video — trước đây chỉ giữ path cục bộ,
+                    # bị xóa khi pipeline dọn dẹp, khiến mọi lần regenerate/reassemble SAU KHI
+                    # video đã xong không tìm lại được audio → cả video mất tiếng hoàn toàn.
+                    if results.get("audio_path"):
+                        try:
+                            from storage import upload_file as s3_upload
+                            audio_key = f"videos/{video_id}/audio/scene_{scene_order:03d}.mp3"
+                            if s3_upload(results["audio_path"], audio_key, "audio/mpeg"):
+                                results["audio_key"] = audio_key
+                                logger.info(f"[{video_id}] Scene {scene_order} audio checkpoint uploaded: {audio_key}")
+                        except Exception as ue:
+                            logger.warning(f"[{video_id}] Scene {scene_order} audio checkpoint upload failed: {ue}")
                     completed_scenes.append((scene_order, scene, results, scene_status))
                     logger.info(f"[{video_id}] Scene {scene_order} done: {scene_status}")
                 except Exception as e:
@@ -435,7 +447,7 @@ def process_video_pipeline(manifest: RenderManifest):
                         "vid": video_id,
                         "idx": scene_order,
                         "votext": scene.narration_text,
-                        "apath": results.get("audio_path"),
+                        "apath": results.get("audio_key") or results.get("audio_path"),
                         "vpath": results.get("clip_key") or results.get("video_path"),
                         "ipath": results.get("image_path"),
                         "imgprov": scene.image_provider,
@@ -646,18 +658,10 @@ def _regenerate_scene_image_task(req: "RegenerateImageRequest") -> None:
         if not _b64_or_url_to_file(image_data, img_path):
             raise RuntimeError("Không lưu được ảnh mới")
 
+        from asset_downloader import create_slideshow_clip
         clip_path = os.path.join(scene_dir, f"scene_{idx + 1}_video.mp4")
-        import subprocess
-        cmd = [
-            "ffmpeg", "-y", "-loop", "1", "-i", img_path,
-            "-c:v", "libx264", "-preset", "medium", "-crf", "20",
-            "-t", f"{duration:.3f}", "-pix_fmt", "yuv420p",
-            "-vf", "scale=1920:1080:flags=lanczos:force_original_aspect_ratio=increase,crop=1920:1080",
-            "-r", "30", clip_path,
-        ]
-        r = subprocess.run(cmd, capture_output=True, timeout=120)
-        if r.returncode != 0:
-            raise RuntimeError(f"ffmpeg failed: {r.stderr.decode()[:300]}")
+        if not create_slideshow_clip(img_path, clip_path, duration):
+            raise RuntimeError("ffmpeg failed")
 
         from storage import upload_file as s3_upload
         clip_key = s3_upload(clip_path, f"videos/{video_id}/clips/clip_{idx:03d}.mp4", "video/mp4")
@@ -724,28 +728,22 @@ def _regenerate_scene_voice_task(req: "RegenerateVoiceRequest") -> None:
         if fr.returncode != 0 or not os.path.exists(img_path):
             raise RuntimeError("Không trích được ảnh từ clip cũ")
 
+        from asset_downloader import create_slideshow_clip
         clip_path = os.path.join(scene_dir, f"scene_{idx + 1}_video.mp4")
-        cmd = [
-            "ffmpeg", "-y", "-loop", "1", "-i", img_path,
-            "-c:v", "libx264", "-preset", "medium", "-crf", "20",
-            "-t", f"{duration:.3f}", "-pix_fmt", "yuv420p",
-            "-vf", "scale=1920:1080:flags=lanczos:force_original_aspect_ratio=increase,crop=1920:1080",
-            "-r", "30", clip_path,
-        ]
-        r = subprocess.run(cmd, capture_output=True, timeout=120)
-        if r.returncode != 0:
-            raise RuntimeError(f"ffmpeg failed: {r.stderr.decode()[:300]}")
+        if not create_slideshow_clip(img_path, clip_path, duration):
+            raise RuntimeError("ffmpeg failed")
 
         from storage import upload_file as s3_upload
         clip_key = s3_upload(clip_path, f"videos/{video_id}/clips/clip_{idx:03d}.mp4", "video/mp4")
+        audio_key = s3_upload(audio_path, f"videos/{video_id}/audio/scene_{idx:03d}.mp3", "audio/mpeg")
 
         with SessionLocal() as db:
             db.execute(
                 text(
-                    'UPDATE scenes SET "videoKey" = :vk, "durationSec" = :dur, "regenCount" = "regenCount" + 1, "updatedAt" = NOW() '
+                    'UPDATE scenes SET "videoKey" = :vk, "audioKey" = :ak, "durationSec" = :dur, "regenCount" = "regenCount" + 1, "updatedAt" = NOW() '
                     'WHERE "videoId" = :v AND "sceneIndex" = :i'
                 ),
-                {"vk": clip_key, "dur": duration, "v": video_id, "i": idx},
+                {"vk": clip_key, "ak": audio_key, "dur": duration, "v": video_id, "i": idx},
             )
             db.commit()
         _emit_render_event(video_id, "info", "voice", f"Đã sinh lại voice cho cảnh {idx + 1}")

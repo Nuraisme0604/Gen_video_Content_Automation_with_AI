@@ -35,8 +35,8 @@ def download_file(url: str, dest_path: str) -> bool:
 def generate_voiceover(text: str, dest_path: str, voice_id: str, api_key: str) -> bool:
     """Use Edge TTS (free, no API key) for voice synthesis."""
     Path(dest_path).parent.mkdir(parents=True, exist_ok=True)
-    # Default Vietnamese male voice; override via VOICE_NAME env var
-    voice = os.getenv("VOICE_NAME", "vi-VN-NamMinhNeural")
+    # Default Vietnamese female voice; override via VOICE_NAME env var
+    voice = os.getenv("VOICE_NAME", "vi-VN-HoaiMyNeural")
     import time, random
     # Retry: edge-tts hay trả "No audio received" khi nhiều scene gọi song song (rate-limit).
     # Backoff + jitter giãn các request ra để mọi scene đều có tiếng.
@@ -83,6 +83,47 @@ def poll_runway_task(task_id: str, api_key: str, max_retries: int = 30, delay: i
     return None
 
 
+def create_slideshow_clip(image_path: str, dest_path: str, duration: float) -> bool:
+    """Ken Burns nhẹ (zoom ~15%, hướng pan ngẫu nhiên) từ 1 ảnh tĩnh. Dùng chung cho pipeline
+    chính (_generate_video_from_prompt) và các endpoint regenerate-image/regenerate-voice —
+    tránh lặp code khiến 2 nơi lệch nhau (trước đây các endpoint regenerate tự có ffmpeg command
+    riêng, luôn tạo ảnh đứng im dù pipeline chính đã có Ken Burns)."""
+    import subprocess, random
+    Path(dest_path).parent.mkdir(parents=True, exist_ok=True)
+    fps = 30
+    frames = max(2, round(duration * fps))
+    last = frames - 1
+    zoom_in = f"min(1+0.15*on/{last},1.15)"
+    zoom_out = f"max(1.15-0.15*on/{last},1.0)"
+    presets = [
+        (zoom_in,  "(iw-iw/zoom)/2",              "(ih-ih/zoom)/2"),               # zoom in, center
+        (zoom_out, "(iw-iw/zoom)/2",              "(ih-ih/zoom)/2"),               # zoom out, center
+        (zoom_in,  f"(iw-iw/zoom)*on/{last}",     "(ih-ih/zoom)/2"),               # zoom in, pan left->right
+        (zoom_in,  f"(iw-iw/zoom)*(1-on/{last})", "(ih-ih/zoom)/2"),               # zoom in, pan right->left
+        (zoom_in,  "(iw-iw/zoom)/2",              f"(ih-ih/zoom)*on/{last}"),      # zoom in, pan top->bottom
+    ]
+    zoom_expr, x_expr, y_expr = random.choice(presets)
+    try:
+        cmd = [
+            "ffmpeg", "-y", "-loop", "1", "-i", image_path,
+            "-vf", (
+                f"scale=2400:1350:flags=lanczos:force_original_aspect_ratio=increase,crop=2400:1350,"
+                f"zoompan=z='{zoom_expr}':x='{x_expr}':y='{y_expr}':d={frames}:s=1920x1080:fps={fps}"
+            ),
+            "-c:v", "libx264", "-preset", "medium", "-crf", "20",
+            "-t", f"{duration:.3f}", "-pix_fmt", "yuv420p",
+            dest_path
+        ]
+        r = subprocess.run(cmd, capture_output=True, timeout=120)
+        if r.returncode == 0 and Path(dest_path).exists():
+            return True
+        logger.error(f"ffmpeg failed: {r.stderr.decode()[:300]}")
+        return False
+    except Exception as e:
+        logger.error(f"Slideshow gen failed: {e}")
+        return False
+
+
 def _generate_video_from_prompt(prompt: str, dest_path: str, image_path: str = None, provider: str = None, scene_duration: float = None) -> bool:
     """
     Route video generation to a provider. Provider chosen per-project by the user
@@ -102,32 +143,17 @@ def _generate_video_from_prompt(prompt: str, dest_path: str, image_path: str = N
     use_image = os.getenv("USE_IMAGE_TO_VIDEO", "true").lower() in ("true", "1", "yes")
 
     if provider == "slideshow":
-        # Ảnh giữ TĨNH đúng thời lượng voice → khi ghép sẽ cắt thẳng sang ảnh sau (hard cut).
-        # Doodle phẳng không hợp Ken Burns zoom (làm méo nét vẽ), nên bỏ hẳn zoompan.
+        # Ken Burns rõ chuyển động (zoom ~15%, hướng pan ngẫu nhiên mỗi cảnh) thay vì ảnh đứng im
+        # 100% — tránh bị YouTube coi là "reused/low-effort content".
         if not image_path or not Path(image_path).exists():
             logger.warning(f"Slideshow needs image_path, none provided")
             return False, False
         # Thời lượng hình = ĐÚNG độ dài voice (chính xác, không làm tròn → khớp nhịp lời đọc).
         duration = max(2.0, float(scene_duration)) if scene_duration else float(os.getenv("SCENE_VIDEO_SECONDS", "8"))
-        Path(dest_path).parent.mkdir(parents=True, exist_ok=True)
-        import subprocess
-        try:
-            cmd = [
-                "ffmpeg", "-y", "-loop", "1", "-i", image_path,
-                "-c:v", "libx264", "-preset", "medium", "-crf", "20",
-                "-t", f"{duration:.3f}", "-pix_fmt", "yuv420p",
-                "-vf", "scale=1920:1080:flags=lanczos:force_original_aspect_ratio=increase,crop=1920:1080",
-                "-r", "30", dest_path
-            ]
-            r = subprocess.run(cmd, capture_output=True, timeout=120)
-            if r.returncode == 0 and Path(dest_path).exists():
-                logger.info(f"Slideshow video created: {dest_path}")
-                return True, False
-            logger.error(f"ffmpeg failed: {r.stderr.decode()[:300]}")
-            return False, False
-        except Exception as e:
-            logger.error(f"Slideshow gen failed: {e}")
-            return False, False
+        if create_slideshow_clip(image_path, dest_path, duration):
+            logger.info(f"Slideshow video created (Ken Burns): {dest_path}")
+            return True, False
+        return False, False
 
     if provider == "veo3":
         from veo3_generator import generate_video_veo3, Veo3TransientError, Veo3PermanentError

@@ -189,7 +189,7 @@ services:
       - USE_IMAGE_TO_VIDEO=${USE_IMAGE_TO_VIDEO:-true}
       - GOOGLE_APPLICATION_CREDENTIALS=${GOOGLE_APPLICATION_CREDENTIALS:-/secrets/gcp-sa.json}
       # Voice (Edge TTS — free, no key)
-      - VOICE_NAME=${VOICE_NAME:-vi-VN-NamMinhNeural}
+      - VOICE_NAME=${VOICE_NAME:-vi-VN-HoaiMyNeural}
       # BGM (free fallback to static if no ElevenLabs/Suno key in DB)
       - MUSIC_PROVIDER=${MUSIC_PROVIDER:-static}
       - BGM_DURATION_MS=${BGM_DURATION_MS:-0}

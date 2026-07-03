@@ -3,7 +3,7 @@ import logging
 import random
 import shlex
 import subprocess
-from moviepy.editor import VideoFileClip, AudioFileClip, concatenate_videoclips, CompositeAudioClip, afx
+from moviepy.editor import VideoFileClip, AudioFileClip, concatenate_videoclips, CompositeAudioClip, CompositeVideoClip, afx
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker
 
@@ -27,6 +27,21 @@ def _ensure_local(path_or_key):
     return local if download_file(path_or_key, local) else None
 
 
+def _concatenate_with_crossfade(clips, transition_duration=0.4):
+    """Ghép các clip cảnh với hiệu ứng crossfade thay vì cắt cứng (hard cut) — chuyển cảnh
+    mượt hơn. Video+audio của mỗi clip dịch chuyển cùng nhau (không lệch sync); tổng thời
+    lượng co lại nhẹ theo số lần chuyển cảnh (transition_duration mỗi lần)."""
+    if len(clips) <= 1:
+        return concatenate_videoclips(clips, method="compose")
+    td = min(transition_duration, min(c.duration for c in clips) / 2)
+    positioned = [clips[0]]
+    t = clips[0].duration
+    for c in clips[1:]:
+        positioned.append(c.crossfadein(td).set_start(t - td))
+        t += c.duration - td
+    return CompositeVideoClip(positioned).set_duration(t)
+
+
 def assemble_master_video(video_id: str, disable_bgm: bool | None = None):
     """
     Ghép các video clip lại, mix audio với nhạc nền và áp dụng Audio Ducking.
@@ -37,7 +52,10 @@ def assemble_master_video(video_id: str, disable_bgm: bool | None = None):
     # 1. Fetch scenes từ DB
     with SessionLocal() as db:
         scenes = db.execute(
-            text('SELECT id, "sceneIndex" AS scene_index, "videoKey" AS video_path, "audioKey" AS audio_path FROM scenes WHERE "videoId" = :id AND status = \'completed\' ORDER BY "sceneIndex" ASC'),
+            # status có 2 quy ước tồn tại song song: pipeline chính ghi 'completed', còn
+            # webhook scene-progress (dùng bởi regenerate-image/regenerate-voice) ghi 'done'
+            # — nhận cả 2 để tránh cảnh vừa sinh lại bị loại khỏi lần ghép sau.
+            text('SELECT id, "sceneIndex" AS scene_index, "videoKey" AS video_path, "audioKey" AS audio_path FROM scenes WHERE "videoId" = :id AND status IN (\'completed\', \'done\') ORDER BY "sceneIndex" ASC'),
             {"id": video_id}
         ).fetchall()
 
@@ -91,8 +109,8 @@ def assemble_master_video(video_id: str, disable_bgm: bool | None = None):
         logger.error(f"[Video {video_id}] Không load được video clips nào.")
         return
 
-    # 3. Nối các video lại với nhau
-    master_video = concatenate_videoclips(video_clips, method="compose")
+    # 3. Nối các video lại với nhau (crossfade thay vì cắt cứng)
+    master_video = _concatenate_with_crossfade(video_clips)
     logger.info(f"[Video {video_id}] Đã ghép {len(video_clips)} clips. Tổng thời lượng: {master_video.duration:.1f}s")
 
     # 4. Thêm nhạc nền (Audio Ducking + crossfade loop nếu BGM ngắn hơn video)
